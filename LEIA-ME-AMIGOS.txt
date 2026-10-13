@@ -1,0 +1,24 @@
+SALA DE TELA: como instalar (2 minutos)
+
+1. Dê dois cliques no arquivo "Instalar-Sala.bat".
+   - Se o Windows mostrar "O Windows protegeu o computador", clique em
+     "Mais informações" e depois em "Executar assim mesmo".
+   - Quando perguntar "Deseja permitir que este aplicativo faça alterações?",
+     clique em "Sim".
+   - Quando pedir o "código de convite", cole o código SALA-... que você
+     recebeu em mensagem privada (cada código só funciona uma vez).
+
+2. Espere a janela preta terminar (na primeira vez ela baixa uns 540 MB).
+   No fim aparece "Pronto!".
+
+3. Na Área de Trabalho aparecem dois atalhos:
+   - "Sala de Tela": para ASSISTIR a tela dos outros.
+     Clique no nome de quem está ao vivo e depois em "Ativar som".
+   - "Transmitir minha tela": para MOSTRAR a sua tela.
+     Clique em "Transmitir". Para parar, clique em "Parar".
+
+IMPORTANTE: use o aplicativo do Discord (não o Discord pelo navegador).
+Assim a voz da chamada não vai junto com a sua transmissão.
+
+Deu problema? Abra "Transmitir minha tela", clique em "Diagnóstico" e mande
+o arquivo "SalaDeTela-diagnostico.txt" (que aparece na Área de Trabalho).

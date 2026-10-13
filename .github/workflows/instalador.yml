@@ -1,0 +1,31 @@
+# Gera o Instalar-Sala.bat (genérico, sem segredos) a cada mudança no lado
+# Windows e publica na release "instalador". Link fixo para os amigos:
+#   https://github.com/<usuario>/<repo>/releases/download/instalador/Instalar-Sala.bat
+name: Instalador Windows
+
+on:
+  push:
+    branches: [main]
+    paths: ["windows/**", ".github/workflows/instalador.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gerar instalador
+        run: ./windows/build-instalador.sh
+
+      - name: Publicar na release "instalador"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view instalador >/dev/null 2>&1 || \
+            gh release create instalador --title "Instalador da Sala de Tela" \
+              --notes "Baixe o Instalar-Sala.bat e siga o LEIA-ME-AMIGOS.txt. Você vai precisar do código de convite que recebeu em mensagem privada."
+          gh release upload instalador dist/Instalar-Sala.bat LEIA-ME-AMIGOS.txt --clobber
