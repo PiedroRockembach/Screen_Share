@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sala de Tela</title>
+  <link rel="stylesheet" href="painel.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Sala de Tela</h1>
+      <span id="ocupado" class="pilula" hidden></span>
+    </header>
+
+    <div id="acao" class="faixa aviso" hidden>
+      <span id="acao-texto"></span>
+      <a id="acao-link" target="_blank" rel="noopener" hidden>Abrir de novo</a>
+    </div>
+    <div id="erro" class="faixa erro" hidden></div>
+
+    <section class="cartao">
+      <h2>Sua sala</h2>
+      <div id="sala-fechada">
+        <p class="dica">Crie uma sala para os seus amigos entrarem. Este PC vira o servidor
+          enquanto o Sala de Tela estiver aberto. Na primeira vez, ele pede para você entrar no
+          Tailscale (gratuito, pode ser com a conta do Google).</p>
+        <button id="btn-criar" class="botao">Criar sala</button>
+      </div>
+      <div id="sala-aberta" hidden>
+        <p class="dica">Mande este link para quem você quiser na sala. É o mesmo link para todos, e continua igual nos próximos dias.</p>
+        <div class="linha">
+          <input id="link" type="text" readonly>
+          <button id="btn-copiar" class="botao">Copiar</button>
+        </div>
+        <div class="linha">
+          <button id="btn-abrir" class="secundario">Assistir</button>
+          <button id="btn-novo-link" class="secundario">Trocar o link</button>
+          <button id="btn-fechar" class="secundario perigo">Fechar a sala</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="cartao">
+      <h2>Transmitir minha tela</h2>
+      <label>Link da sala
+        <input id="link-sala" type="text" placeholder="cole o link do amigo (vazio = a sua sala)">
+      </label>
+      <label>Seu nome
+        <input id="nome" type="text" maxlength="32">
+      </label>
+      <label class="caixa">
+        <input id="com-som" type="checkbox">
+        Transmitir o som do PC (o Discord fica de fora, sem eco)
+      </label>
+      <button id="btn-transmitir" class="botao">▶ Transmitir</button>
+      <p id="status-trans" class="dica"></p>
+    </section>
+
+    <details class="cartao">
+      <summary>O que está acontecendo</summary>
+      <pre id="historico"></pre>
+    </details>
+
+    <footer>
+      <span class="dica">Fechar esta aba não fecha a sala. Para fechar tudo:</span>
+      <button id="btn-encerrar" class="secundario perigo">Encerrar o Sala de Tela</button>
+    </footer>
+  </main>
+  <script src="painel.js"></script>
+</body>
+</html>

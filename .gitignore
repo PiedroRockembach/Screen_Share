@@ -1,5 +1,1 @@
-# Instalador gerado: contém a auth key da VPN
 dist/
-__pycache__/
-auto.crt
-auto.key

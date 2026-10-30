@@ -1,0 +1,47 @@
+# Compila o Sala de Tela para Windows e Linux e publica na release "ultima".
+# Links fixos para baixar:
+#   https://github.com/<usuario>/<repo>/releases/download/ultima/SalaDeTela.exe
+#   https://github.com/<usuario>/<repo>/releases/download/ultima/sala-de-tela-linux.tar.gz
+name: Publicar
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "go.mod", "go.sum", ".github/workflows/publicar.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Verificar
+        run: |
+          go vet ./app
+          GOOS=windows go vet ./app
+
+      - name: Compilar
+        run: |
+          mkdir -p dist/linux
+          # -H windowsgui: abre sem janela preta (o painel aparece no navegador)
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/SalaDeTela.exe ./app
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/linux/sala-de-tela ./app
+          # tar mantém a permissão de execução (para abrir com dois cliques)
+          tar -C dist/linux -czf dist/sala-de-tela-linux.tar.gz sala-de-tela
+
+      - name: Publicar na release "ultima"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ultima >/dev/null 2>&1 || \
+            gh release create ultima --title "Sala de Tela" \
+              --notes "Windows: baixe SalaDeTela.exe. Linux: baixe sala-de-tela-linux.tar.gz, extraia e abra sala-de-tela. Veja o LEIA-ME no repositório."
+          gh release upload ultima dist/SalaDeTela.exe dist/sala-de-tela-linux.tar.gz --clobber

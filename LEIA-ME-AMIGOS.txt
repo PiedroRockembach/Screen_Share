@@ -1,24 +1,25 @@
-SALA DE TELA: como instalar (2 minutos)
+SALA DE TELA: como usar
 
-1. Dê dois cliques no arquivo "Instalar-Sala.bat".
-   - Se o Windows mostrar "O Windows protegeu o computador", clique em
+SÓ ASSISTIR
+  Abra o link da sala que você recebeu. Pronto, não precisa instalar nada.
+  Clique no nome de quem está ao vivo e depois em "Ativar som".
+
+MOSTRAR A SUA TELA (sem som)
+  Na página da sala, escreva o seu nome e clique em "Transmitir minha tela".
+
+MOSTRAR A SUA TELA COM SOM (sem a voz do Discord)
+  1. Baixe o SalaDeTela.exe e abra com dois cliques.
+     Se o Windows mostrar "O Windows protegeu o computador", clique em
      "Mais informações" e depois em "Executar assim mesmo".
-   - Quando perguntar "Deseja permitir que este aplicativo faça alterações?",
-     clique em "Sim".
-   - Quando pedir o "código de convite", cole o código SALA-... que você
-     recebeu em mensagem privada (cada código só funciona uma vez).
+  2. No painel que abrir, cole o link da sala, escreva o seu nome e clique
+     em "Transmitir". Na primeira vez ele baixa o que precisa (uns 540 MB)
+     e pede "Sim" no aviso do Windows.
+  Use o aplicativo do Discord (não o Discord pelo navegador), senão a voz
+  da chamada pode ir junto.
 
-2. Espere a janela preta terminar (na primeira vez ela baixa uns 540 MB).
-   No fim aparece "Pronto!".
-
-3. Na Área de Trabalho aparecem dois atalhos:
-   - "Sala de Tela": para ASSISTIR a tela dos outros.
-     Clique no nome de quem está ao vivo e depois em "Ativar som".
-   - "Transmitir minha tela": para MOSTRAR a sua tela.
-     Clique em "Transmitir". Para parar, clique em "Parar".
-
-IMPORTANTE: use o aplicativo do Discord (não o Discord pelo navegador).
-Assim a voz da chamada não vai junto com a sua transmissão.
-
-Deu problema? Abra "Transmitir minha tela", clique em "Diagnóstico" e mande
-o arquivo "SalaDeTela-diagnostico.txt" (que aparece na Área de Trabalho).
+CRIAR A SUA PRÓPRIA SALA
+  Abra o SalaDeTela.exe e clique em "Criar sala". Na primeira vez ele pede
+  para você entrar no Tailscale (grátis, pode ser com a conta do Google) e
+  autorizar o "Funnel" com um clique. Aguarde o link aparecer no painel (na primeira
+  vez, o endereço pode levar até 10 minutos para ficar público) e depois mande.
+  A sala fica aberta enquanto o programa estiver aberto.

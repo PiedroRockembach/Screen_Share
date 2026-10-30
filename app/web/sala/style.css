@@ -120,3 +120,29 @@ video { width: 100%; height: 100%; object-fit: contain; display: block; }
   aside { width: auto; border-right: 0; border-bottom: 1px solid var(--borda); max-height: 35vh; }
   #controles { flex-wrap: wrap; }
 }
+
+.separado { margin-top: 24px; }
+
+#nome {
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--borda);
+  background: var(--painel);
+  color: var(--texto);
+  font: inherit;
+}
+
+.botao {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--destaque);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.botao:disabled { opacity: .4; cursor: default; }
