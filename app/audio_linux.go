@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -11,14 +12,16 @@ import (
 )
 
 // Áudio no Linux sem o Discord:
-//   - cria a saída virtual "sala_de_tela", que repassa o som para a saída padrão
-//     (você continua ouvindo tudo);
-//   - move todo app que toca na saída padrão para a "sala_de_tela", MENOS o Discord;
+//   - cria a saída virtual "sala_de_tela", que é muda (não toca em lugar nenhum);
+//   - para cada app que toca som, MENOS o Discord, liga uma CÓPIA da saída dele
+//     na "sala_de_tela". O app continua tocando onde já tocava (fone, caixa,
+//     EasyEffects...), então nada muda no que você ouve;
 //   - o OBS captura só o monitor da "sala_de_tela".
-// Se algo falhar, os apps ficam na saída padrão e só não vão para a
-// transmissão: a voz do Discord nunca entra. Tudo some quando a transmissão acaba.
+// Mover os apps de saída não funciona com o EasyEffects (ele puxa os apps de
+// volta na hora); a cópia não briga com ninguém. Se algo falhar, o pior caso é
+// um app não ir para a transmissão: a voz do Discord nunca entra.
 
-const sinkSala = "sala_de_tela"
+var sinkSala = "sala_de_tela" // var só para os testes usarem outro nome
 
 type entradaPA struct {
 	Index      int
@@ -73,96 +76,222 @@ func ehDiscordPA(props map[string]string) bool {
 	return false
 }
 
+// Programas de áudio que não são "apps": copiar a saída deles duplicaria o som.
+func naoEhApp(props map[string]string) bool {
+	if strings.HasPrefix(props["node.name"], "sala_") || props["node.link-group"] != "" {
+		return true // loopbacks e filtros
+	}
+	bin := strings.ToLower(props["application.process.binary"] + " " + props["application.name"] + " " + props["application.id"])
+	for _, nome := range []string{"easyeffects", "pulseeffects", "obs"} {
+		if strings.Contains(bin, nome) {
+			return true
+		}
+	}
+	return false
+}
+
+type objetoPW struct {
+	ID   int    `json:"id"`
+	Type string `json:"type"`
+	Info struct {
+		Props        map[string]any `json:"props"`
+		OutputPortID int            `json:"output-port-id"`
+		InputPortID  int            `json:"input-port-id"`
+	} `json:"info"`
+}
+
+func texto(props map[string]any) map[string]string {
+	m := make(map[string]string, len(props))
+	for k, v := range props {
+		switch x := v.(type) {
+		case string:
+			m[k] = x
+		case float64:
+			m[k] = strconv.FormatFloat(x, 'f', -1, 64)
+		case bool:
+			m[k] = strconv.FormatBool(x)
+		}
+	}
+	return m
+}
+
+// lado diz para qual canal da Sala (FL/FR) vai cada canal do app.
+func lado(canal string) []string {
+	switch canal {
+	case "FL", "RL", "SL", "FLC", "RLC":
+		return []string{"FL"}
+	case "FR", "RR", "SR", "FRC", "RRC":
+		return []string{"FR"}
+	default: // MONO, FC, LFE...
+		return []string{"FL", "FR"}
+	}
+}
+
+// ajustarAudio liga a cópia de cada app na Sala e garante que o Discord fica fora.
 func ajustarAudio() {
+	saida, err := exec.Command("pw-dump").Output()
+	if err != nil {
+		return
+	}
+	var objetos []objetoPW
+	if json.Unmarshal(saida, &objetos) != nil {
+		return
+	}
+	nos := map[int]map[string]string{}
+	for _, o := range objetos {
+		if o.Type == "PipeWire:Interface:Node" {
+			nos[o.ID] = texto(o.Info.Props)
+		}
+	}
+	type porta struct {
+		id    int
+		no    int
+		canal string
+	}
+	entradaSala := map[string]int{} // canal -> porta de entrada da Sala
+	var saidasApps []porta
+	for _, o := range objetos {
+		if o.Type != "PipeWire:Interface:Port" {
+			continue
+		}
+		p := texto(o.Info.Props)
+		no, _ := strconv.Atoi(p["node.id"])
+		props := nos[no]
+		switch {
+		case props["node.name"] == sinkSala && p["port.direction"] == "in":
+			entradaSala[p["audio.channel"]] = o.ID
+		case props["media.class"] == "Stream/Output/Audio" && p["port.direction"] == "out" && p["port.monitor"] != "true":
+			saidasApps = append(saidasApps, porta{o.ID, no, p["audio.channel"]})
+		}
+	}
+	if len(entradaSala) == 0 {
+		return
+	}
+	existe := map[[2]int]bool{}
+	for _, o := range objetos {
+		if o.Type == "PipeWire:Interface:Link" {
+			existe[[2]int{o.Info.OutputPortID, o.Info.InputPortID}] = true
+		}
+	}
+
+	discord := map[int]bool{}
+	for _, s := range saidasApps {
+		props := nos[s.no]
+		if _, visto := discord[s.no]; !visto {
+			discord[s.no] = ehDiscordPA(props)
+		}
+		for _, canal := range lado(s.canal) {
+			destino, ok := entradaSala[canal]
+			if !ok {
+				continue
+			}
+			par := [2]int{s.id, destino}
+			switch {
+			case discord[s.no] && existe[par]:
+				exec.Command("pw-link", "-d", strconv.Itoa(s.id), strconv.Itoa(destino)).Run()
+			case !discord[s.no] && !naoEhApp(props) && !existe[par]:
+				exec.Command("pw-link", strconv.Itoa(s.id), strconv.Itoa(destino)).Run()
+			}
+		}
+	}
+
+	// Ninguém deve tocar DIRETO na Sala (ela é muda; só recebe cópias). Se um app
+	// foi parar nela (ex.: o WirePlumber lembrou de uma versão antiga deste
+	// programa, ou escolhido à mão), volta para a saída padrão: assim você continua
+	// ouvindo, e a cópia leva o som para a transmissão (menos o Discord).
+	var entradas []entradaPA
 	var sinks []struct {
 		Index int
 		Name  string
 	}
-	if pactlJSON(&sinks, "list", "sinks") != nil {
-		return
-	}
-	nomes := map[int]string{}
-	for _, s := range sinks {
-		nomes[s.Index] = s.Name
-	}
-	saida, err := exec.Command("pactl", "get-default-sink").Output()
-	padrao := strings.TrimSpace(string(saida))
-	if err != nil || padrao == "" || padrao == sinkSala {
-		return
-	}
-	var entradas []entradaPA
-	if pactlJSON(&entradas, "list", "sink-inputs") != nil {
-		return
-	}
-	for _, e := range entradas {
-		p := e.Properties
-		if strings.HasPrefix(p["node.name"], "sala_") || p["node.link-group"] != "" {
-			continue // loopbacks e filtros não são apps
-		}
-		onde := nomes[e.Sink]
-		discord := ehDiscordPA(p)
-		switch {
-		case discord && onde == sinkSala:
-			exec.Command("pactl", "move-sink-input", strconv.Itoa(e.Index), padrao).Run()
-		case !discord && onde == padrao:
-			exec.Command("pactl", "move-sink-input", strconv.Itoa(e.Index), sinkSala).Run()
+	if pactlJSON(&entradas, "list", "sink-inputs") == nil && pactlJSON(&sinks, "list", "sinks") == nil {
+		saidaPadrao, _ := exec.Command("pactl", "get-default-sink").Output()
+		padrao := strings.TrimSpace(string(saidaPadrao))
+		for _, s := range sinks {
+			if s.Name != sinkSala || padrao == "" || padrao == sinkSala {
+				continue
+			}
+			for _, e := range entradas {
+				if e.Sink == s.Index && !naoEhApp(e.Properties) {
+					exec.Command("pactl", "move-sink-input", strconv.Itoa(e.Index), padrao).Run()
+				}
+			}
 		}
 	}
 }
 
-// iniciarAudioSala cria a "sala_de_tela" e mantém o roteamento até fim fechar.
+// removerSalasAntigas descarrega uma "sala_de_tela" que tenha sobrado (ex.: o
+// programa fechou de repente na transmissão anterior).
+func removerSalasAntigas() {
+	var modulos []struct {
+		Index    int
+		Name     string
+		Argument string
+	}
+	if pactlJSON(&modulos, "list", "modules") != nil {
+		return
+	}
+	for _, m := range modulos {
+		if m.Name == "module-null-sink" && strings.Contains(m.Argument, "sink_name="+sinkSala) {
+			exec.Command("pactl", "unload-module", strconv.Itoa(m.Index)).Run()
+		}
+	}
+}
+
+// iniciarAudioSala cria a "sala_de_tela" e mantém as cópias até fim fechar.
 // Devolve false se não deu para montar (então transmitimos sem som).
 func iniciarAudioSala(fim <-chan struct{}) bool {
-	for _, p := range []string{"pactl", "pw-loopback"} {
+	for _, p := range []string{"pactl", "pw-dump", "pw-link"} {
 		if _, err := exec.LookPath(p); err != nil {
 			return false
 		}
 	}
-	loop := exec.Command("pw-loopback",
-		"--capture-props=node.name="+sinkSala+" node.description=Sala-de-Tela media.class=Audio/Sink audio.position=[FL,FR] priority.session=1 priority.driver=1",
-		"--playback-props=node.name=sala_de_tela_saida audio.position=[FL,FR] node.passive=true")
-	prepararFilho(loop)
-	if loop.Start() != nil {
+	removerSalasAntigas()
+	saida, err := exec.Command("pactl", "load-module", "module-null-sink",
+		"sink_name="+sinkSala, "rate=48000", "channels=2", "channel_map=front-left,front-right",
+		"sink_properties='device.description=Sala-de-Tela priority.session=1 priority.driver=1'").Output()
+	if err != nil {
 		return false
 	}
-	pronto := false
-	for i := 0; i < 20 && !pronto; i++ {
-		time.Sleep(100 * time.Millisecond)
-		var sinks []struct{ Name string }
-		pactlJSON(&sinks, "list", "sinks")
-		for _, s := range sinks {
-			pronto = pronto || s.Name == sinkSala
-		}
-	}
-	if !pronto {
-		loop.Process.Kill()
-		loop.Wait()
-		return false
-	}
+	modulo := strings.TrimSpace(string(saida))
 
 	go func() {
 		ajustarAudio()
 		eventos := exec.Command("pactl", "subscribe")
 		prepararFilho(eventos)
-		saida, _ := eventos.StdoutPipe()
+		linhas, _ := eventos.StdoutPipe()
 		if eventos.Start() == nil {
 			go func() {
-				sc := bufio.NewScanner(saida)
+				sc := bufio.NewScanner(linhas)
 				for sc.Scan() {
 					l := sc.Text()
-					if strings.Contains(l, "sink-input") || strings.Contains(l, "'server'") || strings.Contains(l, "on sink #") {
+					if strings.Contains(l, "sink-input") || strings.Contains(l, "'server'") {
+						time.Sleep(150 * time.Millisecond) // as portas do app aparecem logo depois
 						ajustarAudio()
 					}
 				}
 			}()
 		}
-		<-fim
+		// Reserva: confere de tempos em tempos (apps nativos do PipeWire nem sempre geram evento).
+		tique := time.NewTicker(2 * time.Second)
+		defer tique.Stop()
+		for {
+			select {
+			case <-tique.C:
+				ajustarAudio()
+				continue
+			case <-fim:
+			}
+			break
+		}
 		if eventos.Process != nil {
 			eventos.Process.Kill()
 			eventos.Wait()
 		}
-		loop.Process.Kill() // a "sala_de_tela" some e os apps voltam para a saída padrão
-		loop.Wait()
+		// A "sala_de_tela" some e as cópias somem junto; os apps nem percebem.
+		if err := exec.Command("pactl", "unload-module", modulo).Run(); err != nil {
+			log.Printf("não consegui remover a saída de áudio da Sala: %v", err)
+		}
 	}()
 	return true
 }
