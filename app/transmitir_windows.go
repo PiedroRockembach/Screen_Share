@@ -110,16 +110,16 @@ func (a *App) garantirGStreamer() (string, error) {
 	return bin, nil
 }
 
-func (a *App) detectarEncoder(bin string) (*EncoderWin, error) {
+func (a *App) detectarEncoder(bin string, exigir ...string) (*EncoderWin, error) {
 	saida, _ := gst(bin, "gst-launch-1.0", "--version").Output()
 	versao := strings.TrimSpace(string(saida))
-	if c := a.config(); c.Encoder != nil && c.GstVersao == versao {
-		return c.Encoder, nil
-	}
-	for _, el := range []string{"d3d11screencapturesrc", "whipclientsink"} {
+	for _, el := range append([]string{"d3d11screencapturesrc"}, exigir...) {
 		if !temElemento(bin, el) {
 			return nil, fmt.Errorf("falta o componente %s do GStreamer", el)
 		}
+	}
+	if c := a.config(); c.Encoder != nil && c.GstVersao == versao {
+		return c.Encoder, nil
 	}
 	for _, c := range candidatosEncoder {
 		if !temElemento(bin, c.El) {
@@ -212,16 +212,26 @@ func (a *App) transmitirSO(whip, nome string, comSom bool) (*Transmissao, error)
 	if err != nil {
 		return nil, err
 	}
-	enc, err := a.detectarEncoder(bin)
+	enc, err := a.detectarEncoder(bin, "whipclientsink")
 	if err != nil {
 		return nil, err
 	}
-	audioPossivel := comSom && versaoWindows() >= 20348
 	turn := turnDaSala(whip, nome)
 	if turn == "" {
 		a.registrar("a sala não informou a retransmissão de vídeo (ela está aberta e atualizada?)")
 	}
-	logPath := filepath.Join(pastaDados, "transmissao.log")
+	return enviarWindows(bin, comSom, "transmissao.log",
+		func(pid uint32) []string { return montarPipeline(enc, whip, turn, pid) },
+		func(t *Transmissao, aviso string) {
+			t.acompanhar(whip, nome, fmt.Sprintf("como \"%s\" (%dx%d 60fps, %s), %s", nome, enc.W, enc.H, enc.Nome, aviso))
+		})
+}
+
+// enviarWindows roda o GStreamer e vigia o processo: se ele cair, tenta de novo;
+// se o Discord abrir ou fechar, recomeça excluindo o processo certo.
+func enviarWindows(bin string, comSom bool, nomeLog string, argumentos func(pidDiscord uint32) []string, noInicio func(t *Transmissao, aviso string)) (*Transmissao, error) {
+	audioPossivel := comSom && versaoWindows() >= 20348
+	logPath := filepath.Join(pastaDados, nomeLog)
 
 	t := novaTransmissao()
 	var proc *exec.Cmd
@@ -243,7 +253,7 @@ func (a *App) transmitirSO(whip, nome string, comSom bool) (*Transmissao, error)
 		default:
 			aviso = "SEM som: há mais de um Discord aberto"
 		}
-		proc = gst(bin, "gst-launch-1.0", montarPipeline(enc, whip, turn, pidExcluido)...)
+		proc = gst(bin, "gst-launch-1.0", argumentos(pidExcluido)...)
 		proc.Env = append(os.Environ(), "GST_DEBUG=2", "GST_DEBUG_NO_COLOR=1")
 		if f, err := os.Create(logPath); err == nil {
 			proc.Stdout, proc.Stderr = f, f
@@ -252,7 +262,7 @@ func (a *App) transmitirSO(whip, nome string, comSom bool) (*Transmissao, error)
 			return err
 		}
 		vincularFilho(proc)
-		t.acompanhar(whip, nome, fmt.Sprintf("como \"%s\" (%dx%d 60fps, %s), %s", nome, enc.W, enc.H, enc.Nome, aviso))
+		noInicio(t, aviso)
 		return nil
 	}
 	if err := iniciar(); err != nil {
@@ -277,7 +287,7 @@ func (a *App) transmitirSO(whip, nome string, comSom bool) (*Transmissao, error)
 			case <-saiu:
 				falhas++
 				if falhas > 3 {
-					t.definir("a transmissão caiu várias vezes (veja transmissao.log)")
+					t.definir("a transmissão caiu várias vezes (veja " + nomeLog + ")")
 					return
 				}
 				t.definir(fmt.Sprintf("a transmissão caiu; tentando de novo (%d/3)…", falhas))

@@ -3,6 +3,7 @@ module github.com/PiedroRockembach/Screen_Share
 go 1.26.0
 
 require (
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/pion/turn/v4 v4.1.4
 	golang.org/x/sys v0.49.0
 )

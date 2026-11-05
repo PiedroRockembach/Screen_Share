@@ -223,17 +223,15 @@ func ajustarAudio() {
 // removerSalasAntigas descarrega uma "sala_de_tela" que tenha sobrado (ex.: o
 // programa fechou de repente na transmissão anterior).
 func removerSalasAntigas() {
-	var modulos []struct {
-		Index    int
-		Name     string
-		Argument string
-	}
-	if pactlJSON(&modulos, "list", "modules") != nil {
+	// A lista em JSON do pactl não traz o número do módulo; a lista curta traz.
+	saida, err := exec.Command("pactl", "list", "short", "modules").Output()
+	if err != nil {
 		return
 	}
-	for _, m := range modulos {
-		if m.Name == "module-null-sink" && strings.Contains(m.Argument, "sink_name="+sinkSala) {
-			exec.Command("pactl", "unload-module", strconv.Itoa(m.Index)).Run()
+	for _, linha := range strings.Split(string(saida), "\n") {
+		campos := strings.Fields(linha)
+		if len(campos) >= 3 && campos[1] == "module-null-sink" && strings.Contains(linha, "sink_name="+sinkSala+" ") {
+			exec.Command("pactl", "unload-module", campos[0]).Run()
 		}
 	}
 }

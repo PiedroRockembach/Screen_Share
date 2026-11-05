@@ -35,6 +35,10 @@ func main() {
 	if err := os.MkdirAll(pastaDados, 0o755); err != nil {
 		log.Fatal(err)
 	}
+	if modoTesteDireto() {
+		executarTesteDireto()
+		return
+	}
 	arqLog, err := os.OpenFile(filepath.Join(pastaDados, "sala-de-tela.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err == nil {
 		log.SetOutput(io.MultiWriter(os.Stderr, arqLog))
