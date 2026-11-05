@@ -34,7 +34,7 @@ func TestFunnelPermitido(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.nome, func(t *testing.T) {
-			if got := funnelPermitido([]byte(tt.json), dns); got != tt.ok {
+			if got := funnelPermitido([]byte(tt.json), dns+":443"); got != tt.ok {
 				t.Fatalf("funnelPermitido() = %v, want %v", got, tt.ok)
 			}
 		})

@@ -22,7 +22,8 @@ type Config struct {
 	Encoder       *EncoderWin `json:"encoder,omitempty"`
 	GstVersao     string      `json:"gstVersao,omitempty"`
 
-	FirewallLiberado bool `json:"firewallLiberado,omitempty"` // Linux: regra do ufw já criada
+	SegredoTURN      string `json:"segredoTurn"`                // senha da retransmissão (TURN) da sala
+	FirewallLiberado bool   `json:"firewallLiberado,omitempty"` // Linux: regra do ufw já criada
 }
 
 type App struct {
@@ -50,6 +51,9 @@ func novoApp() *App {
 	}
 	if a.cfg.Token == "" {
 		a.cfg.Token = aleatorio(16)
+	}
+	if a.cfg.SegredoTURN == "" {
+		a.cfg.SegredoTURN = aleatorio(16)
 	}
 	if a.cfg.Nome == "" {
 		a.cfg.Nome = nomeSeguro(usuarioDoSistema())

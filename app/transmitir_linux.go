@@ -203,7 +203,7 @@ func (a *App) transmitirSO(whip, nome string, comSom bool) (*Transmissao, error)
 		t.cancelar()
 		return nil, fmt.Errorf("abrir o OBS: %w", err)
 	}
-	t.definir(fmt.Sprintf("AO VIVO pelo OBS como \"%s\" (1920x1080 60fps, %s), %s. Na primeira vez, escolha a tela no aviso do sistema.", nome, nomeEnc, aviso))
+	t.acompanhar(whip, nome, fmt.Sprintf("OBS como \"%s\" (1920x1080 60fps, %s), %s. Na primeira vez, escolha a tela no aviso do sistema.", nome, nomeEnc, aviso))
 
 	go func() {
 		defer close(t.parada)

@@ -16,23 +16,30 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pion/turn/v4"
 )
 
 //go:embed web/sala web/painel
 var arquivosWeb embed.FS
 
-// Sala é a sala que ESTE PC hospeda: MediaMTX + Funnel do Tailscale.
+// Sala é a sala que ESTE PC hospeda: MediaMTX + retransmissão TURN + Funnels do Tailscale.
 type Sala struct {
-	dns      string
-	mediamtx *exec.Cmd
-	funnel   *exec.Cmd
+	dns        string
+	mediamtx   *exec.Cmd
+	turn       *turn.Server
+	funnel     *exec.Cmd // página e WHIP/WHEP (https://<dns>/)
+	funnelTURN *exec.Cmd // retransmissão (https://<dns>:8443)
 }
 
 func (s *Sala) parar() {
-	for _, c := range []*exec.Cmd{s.funnel, s.mediamtx} {
+	for _, c := range []*exec.Cmd{s.funnel, s.funnelTURN, s.mediamtx} {
 		if c != nil && c.Process != nil {
 			c.Process.Kill()
 		}
+	}
+	if s.turn != nil {
+		s.turn.Close()
 	}
 }
 
@@ -65,7 +72,11 @@ func (a *App) criarSala() error {
 	if err := a.garantirMediaMTX(); err != nil {
 		return err
 	}
-	mtx, err := iniciarMediaMTX()
+	ipRelay, err := ipParaRelay()
+	if err != nil {
+		return err
+	}
+	mtx, err := iniciarMediaMTX(dns, a.config().SegredoTURN, ipRelay)
 	if err != nil {
 		return err
 	}
@@ -81,10 +92,21 @@ func (a *App) criarSala() error {
 		time.Sleep(500 * time.Millisecond)
 	}
 	s := &Sala{dns: dns, mediamtx: mtx}
+	if s.turn, err = a.iniciarTURN(ipRelay); err != nil {
+		s.parar()
+		return err
+	}
 	if !dev {
 		a.registrar("publicando a sala na internet (Tailscale Funnel)…")
-		if s.funnel, err = a.iniciarFunnel(dns, portaSala); err != nil {
-			mtx.Process.Kill()
+		if s.funnel, err = a.iniciarFunnel(dns, 443, fmt.Sprint(portaSala)); err != nil {
+			s.parar()
+			return err
+		}
+		a.registrar("publicando a retransmissão de vídeo…")
+		s.funnelTURN, err = a.iniciarFunnel(dns, portaTURNPublica,
+			fmt.Sprintf("--tls-terminated-tcp=%d", portaTURNPublica), fmt.Sprintf("tcp://127.0.0.1:%d", portaTURN))
+		if err != nil {
+			s.parar()
 			return err
 		}
 	}
@@ -94,7 +116,7 @@ func (a *App) criarSala() error {
 	a.registrar("sala aberta: %s", a.linkSala())
 
 	// Se o MediaMTX ou o Funnel caírem, a sala fecha (e avisa).
-	for _, c := range []*exec.Cmd{s.mediamtx, s.funnel} {
+	for _, c := range []*exec.Cmd{s.mediamtx, s.funnel, s.funnelTURN} {
 		if c == nil {
 			continue
 		}
@@ -190,6 +212,16 @@ func (a *App) rotasSala() http.Handler {
 		}
 
 		switch {
+		case caminho == "api/ice":
+			sala := a.salaAtual()
+			if sala == nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			json.NewEncoder(w).Encode(a.servidoresICE(sala.dns))
+
 		case caminho == "api/ao-vivo":
 			lista, err := transmissoesAoVivo()
 			if err != nil {

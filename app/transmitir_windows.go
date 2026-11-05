@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -165,9 +167,34 @@ func raizesDiscord() []uint32 {
 	return raizes
 }
 
-func montarPipeline(e *EncoderWin, whip string, pidDiscord uint32) []string {
-	p := fmt.Sprintf("-e whipclientsink name=ws congestion-control=disabled signaller::whip-endpoint=%s", whip) +
-		" d3d11screencapturesrc show-cursor=true ! video/x-raw(memory:D3D11Memory),framerate=60/1" +
+// turnDaSala pergunta à sala qual é a retransmissão dela, no formato do webrtcsink
+// (turns://usuario:senha@host:porta). Vazio se não houver.
+func turnDaSala(whip, nome string) string {
+	texto, err := lerURL(strings.TrimSuffix(whip, nome+"/whip") + "api/ice")
+	if err != nil {
+		return ""
+	}
+	var servidores []servidorICE
+	if json.Unmarshal([]byte(texto), &servidores) != nil {
+		return ""
+	}
+	for _, s := range servidores {
+		for _, u := range s.URLs {
+			if resto, ok := strings.CutPrefix(u, "turns:"); ok && s.Username != "" {
+				hostPorta, _, _ := strings.Cut(resto, "?")
+				return fmt.Sprintf("turns://%s:%s@%s", url.QueryEscape(s.Username), url.QueryEscape(s.Credential), hostPorta)
+			}
+		}
+	}
+	return ""
+}
+
+func montarPipeline(e *EncoderWin, whip, turn string, pidDiscord uint32) []string {
+	p := fmt.Sprintf("-e whipclientsink name=ws congestion-control=disabled signaller::whip-endpoint=%s", whip)
+	if turn != "" {
+		p += fmt.Sprintf(` turn-servers=<"%s">`, turn)
+	}
+	p += " d3d11screencapturesrc show-cursor=true ! video/x-raw(memory:D3D11Memory),framerate=60/1" +
 		fmt.Sprintf(" ! d3d11convert ! video/x-raw(memory:D3D11Memory),width=%d,height=%d,pixel-aspect-ratio=1/1", e.W, e.H)
 	if !e.D3D {
 		p += " ! d3d11download ! videoconvert ! video/x-raw,format=NV12"
@@ -190,6 +217,10 @@ func (a *App) transmitirSO(whip, nome string, comSom bool) (*Transmissao, error)
 		return nil, err
 	}
 	audioPossivel := comSom && versaoWindows() >= 20348
+	turn := turnDaSala(whip, nome)
+	if turn == "" {
+		a.registrar("a sala não informou a retransmissão de vídeo (ela está aberta e atualizada?)")
+	}
 	logPath := filepath.Join(pastaDados, "transmissao.log")
 
 	t := novaTransmissao()
@@ -212,7 +243,7 @@ func (a *App) transmitirSO(whip, nome string, comSom bool) (*Transmissao, error)
 		default:
 			aviso = "SEM som: há mais de um Discord aberto"
 		}
-		proc = gst(bin, "gst-launch-1.0", montarPipeline(enc, whip, pidExcluido)...)
+		proc = gst(bin, "gst-launch-1.0", montarPipeline(enc, whip, turn, pidExcluido)...)
 		proc.Env = append(os.Environ(), "GST_DEBUG=2", "GST_DEBUG_NO_COLOR=1")
 		if f, err := os.Create(logPath); err == nil {
 			proc.Stdout, proc.Stderr = f, f
@@ -221,7 +252,7 @@ func (a *App) transmitirSO(whip, nome string, comSom bool) (*Transmissao, error)
 			return err
 		}
 		vincularFilho(proc)
-		t.definir(fmt.Sprintf("AO VIVO como \"%s\" (%dx%d 60fps, %s), %s", nome, enc.W, enc.H, enc.Nome, aviso))
+		t.acompanhar(whip, nome, fmt.Sprintf("como \"%s\" (%dx%d 60fps, %s), %s", nome, enc.W, enc.H, enc.Nome, aviso))
 		return nil
 	}
 	if err := iniciar(); err != nil {

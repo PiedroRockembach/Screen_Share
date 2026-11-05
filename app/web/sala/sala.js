@@ -3,8 +3,8 @@
 "use strict";
 
 const INTERVALO_LISTA_MS = 3000;
-// STUN gratuito: descobre o IP público para o vídeo ir direto entre os PCs.
-const ICE = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"] }];
+// A sala informa a retransmissão dela (TURN pelo Funnel), por onde o vídeo passa.
+let ICE = [];
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -141,7 +141,7 @@ function encerrar() {
 
 function agendarReconexao() {
   clearTimeout(tentativa);
-  el.aviso.textContent = "Reconectando… (se nunca conectar, a sua rede pode estar bloqueando a conexão direta)";
+  el.aviso.textContent = "Reconectando…";
   tentativa = setTimeout(() => { if (atual) assistir(atual); }, 3000);
 }
 
@@ -181,6 +181,19 @@ function nomeSeguro(s) {
     .replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
 }
 
+// Resolve quando a conexão fecha de verdade; falha se não fechar a tempo.
+function esperarConexao(conexao, limiteMs) {
+  return new Promise((ok, erro) => {
+    const conferir = () => {
+      if (conexao.connectionState === "connected") { clearTimeout(t); ok(); }
+      else if (conexao.connectionState === "failed") { clearTimeout(t); erro(new Error("a conexão falhou")); }
+    };
+    const t = setTimeout(() => erro(new Error("a conexão não fechou a tempo")), limiteMs);
+    conexao.onconnectionstatechange = conferir;
+    conferir();
+  });
+}
+
 async function transmitirNavegador() {
   const nome = nomeSeguro(el.nome.value);
   if (!nome) { el.statusTrans.textContent = "Escreva um nome."; return; }
@@ -218,16 +231,28 @@ async function transmitirNavegador() {
   } catch {}
 
   try {
+    el.statusTrans.textContent = "Conectando à sala…";
     const sessao = await negociar(conexao, endereco(`${encodeURIComponent(nome)}/whip`));
     transmissao = { pc: conexao, midia, sessao };
     transmitindoComo = nome;
+    await esperarConexao(conexao, 20000); // só está no ar quando o vídeo consegue chegar
   } catch (e) {
+    if (transmissao?.pc === conexao) {
+      if (transmissao.sessao) fetch(transmissao.sessao, { method: "DELETE" }).catch(() => {});
+      transmissao = null;
+      transmitindoComo = null;
+    }
     midia.getTracks().forEach((t) => t.stop());
     conexao.close();
     el.statusTrans.textContent = `Não deu para transmitir: ${e.message}`;
     return;
   }
   faixa.onended = pararNavegador; // clicou em "parar de compartilhar" do navegador
+  conexao.onconnectionstatechange = () => {
+    if (conexao.connectionState !== "failed" || transmissao?.pc !== conexao) return;
+    pararNavegador();
+    el.statusTrans.textContent = "A conexão caiu e a transmissão parou. Clique para transmitir de novo.";
+  };
   el.btnTransmitir.textContent = "■ Parar de transmitir";
   el.statusTrans.textContent = `AO VIVO como "${nome}" (sem som).`;
 }
@@ -270,6 +295,14 @@ try { el.nome.value = localStorage.getItem("sala-nome") || ""; } catch {}
 
 window.addEventListener("pagehide", () => { encerrar(); pararNavegador(); });
 
-atualizarBotaoSom();
-atualizarLista();
-setInterval(atualizarLista, INTERVALO_LISTA_MS);
+async function iniciar() {
+  try {
+    const r = await fetch(endereco("api/ice"), { cache: "no-store" });
+    if (r.ok) ICE = await r.json();
+  } catch {}
+  atualizarBotaoSom();
+  atualizarLista();
+  setInterval(atualizarLista, INTERVALO_LISTA_MS);
+}
+
+iniciar();

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,11 +12,15 @@ import (
 const (
 	portaWebRTC = 47802 // WHIP/WHEP do MediaMTX, só 127.0.0.1 (o proxy da sala repassa)
 	portaAPI    = 47803 // API do MediaMTX, só 127.0.0.1
-	portaMidia  = 47804 // UDP: o vídeo em si, direto entre os PCs (P2P)
+	portaMidia  = 47804 // UDP: o vídeo em si, vindo da retransmissão (TURN)
 )
 
 // Só WebRTC, tudo atrás do proxy da sala (que confere o código do link).
-// O STUN descobre o IP público para o vídeo ir direto entre os PCs.
+// O vídeo entre este PC e os convidados passa pela retransmissão (TURN) da sala,
+// que o Funnel publica por HTTPS. Por isso o MediaMTX só anuncia o IP por onde o
+// TURN entrega os pacotes, escuta só nele e não usa STUN: com todas as interfaces
+// (Docker, VPNs, agregadores como o net-merge) ou os soquetes extras do STUN, ele
+// às vezes escolhia um caminho morto e a conexão nunca fechava.
 const configMediaMTX = `
 logLevel: info
 rtsp: false
@@ -26,11 +31,16 @@ moq: false
 
 webrtc: true
 webrtcAddress: 127.0.0.1:%d
-webrtcLocalUDPAddress: :%d
+webrtcLocalUDPAddress: %s:%d
 webrtcLocalTCPAddress: ""
+webrtcIPsFromInterfaces: false
+webrtcAdditionalHosts: ["%s"]
 webrtcICEServers2:
-  - url: stun:stun.l.google.com:19302
-  - url: stun:stun.cloudflare.com:3478
+  # Só anunciada aos clientes (o OBS lê dos cabeçalhos Link do WHIP).
+  - url: turns:%s:%d?transport=tcp
+    username: %s
+    password: %s
+    clientOnly: true
 
 api: true
 apiAddress: 127.0.0.1:%d
@@ -83,9 +93,10 @@ func (a *App) garantirMediaMTX() error {
 	return nil
 }
 
-func iniciarMediaMTX() (*exec.Cmd, error) {
+func iniciarMediaMTX(dns, segredoTURN string, ipRelay net.IP) (*exec.Cmd, error) {
 	conf := filepath.Join(pastaDados, "mediamtx.yml")
-	if err := os.WriteFile(conf, []byte(fmt.Sprintf(configMediaMTX, portaWebRTC, portaMidia, portaAPI)), 0o644); err != nil {
+	texto := fmt.Sprintf(configMediaMTX, portaWebRTC, ipRelay, portaMidia, ipRelay, dns, portaTURNPublica, usuarioTURN, segredoTURN, portaAPI)
+	if err := os.WriteFile(conf, []byte(texto), 0o600); err != nil {
 		return nil, err
 	}
 	cmd := exec.Command(binarioMediaMTX(), conf)

@@ -150,16 +150,18 @@ type estadoFunnel struct {
 	}
 }
 
-func funnelPermitido(b []byte, dns string) bool {
+// funnelPermitido diz se "dns:porta" já está público. No modo em primeiro
+// plano, o Tailscale lista o Funnel dentro de "Foreground".
+func funnelPermitido(b []byte, chave string) bool {
 	var estado estadoFunnel
 	if json.Unmarshal(b, &estado) != nil {
 		return false
 	}
-	if estado.AllowFunnel[dns+":443"] {
+	if estado.AllowFunnel[chave] {
 		return true
 	}
 	for _, foreground := range estado.Foreground {
-		if foreground.AllowFunnel[dns+":443"] {
+		if foreground.AllowFunnel[chave] {
 			return true
 		}
 	}
@@ -179,10 +181,12 @@ func dnsPublicoResolve(dns string) bool {
 	return err == nil && len(enderecos) > 0
 }
 
-// iniciarFunnel publica a porta local na internet em https://<dns>/.
+// iniciarFunnel publica um serviço local na porta pública dada (443: a página
+// em https://<dns>/; 8443: a retransmissão TURN).
 // O processo fica em primeiro plano: quando ele morre, o Funnel some sozinho.
-func (a *App) iniciarFunnel(dns string, porta int) (*exec.Cmd, error) {
-	cmd := comandoTS("funnel", fmt.Sprint(porta))
+func (a *App) iniciarFunnel(dns string, portaPublica int, args ...string) (*exec.Cmd, error) {
+	chave := fmt.Sprintf("%s:%d", dns, portaPublica)
+	cmd := comandoTS(append([]string{"funnel"}, args...)...)
 	saida, _ := cmd.StdoutPipe()
 	cmd.Stderr = cmd.Stdout
 	if err := cmd.Start(); err != nil {
@@ -218,7 +222,7 @@ func (a *App) iniciarFunnel(dns string, porta int) (*exec.Cmd, error) {
 			if err != nil {
 				continue
 			}
-			if funnelPermitido(b, dns) {
+			if funnelPermitido(b, chave) {
 				a.definirAcao("aguardando a publicação do endereço no DNS público (pode levar até 10 minutos)", "")
 				if dnsPublicoResolve(dns) {
 					a.definirAcao("", "")

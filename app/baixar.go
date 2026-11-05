@@ -102,7 +102,8 @@ func somaEsperada(conteudo, nomeArquivo string) (string, error) {
 }
 
 func lerURL(url string) (string, error) {
-	resp, err := http.Get(url)
+	cli := http.Client{Timeout: 15 * time.Second}
+	resp, err := cli.Get(url)
 	if err != nil {
 		return "", err
 	}

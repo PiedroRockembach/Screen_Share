@@ -1,17 +1,21 @@
 package main
 
 import (
+	"encoding/json"
 	"regexp"
+	"strings"
 	"sync"
+	"time"
 )
 
 // Transmissao é a transmissão da tela DESTE PC (para a própria sala ou a de um amigo).
 type Transmissao struct {
-	mu     sync.Mutex
-	ativa  bool
-	status string
-	fim    chan struct{} // fechado para pedir que pare
-	parada chan struct{} // fechado quando tudo terminou
+	mu      sync.Mutex
+	ativa   bool
+	status  string
+	fim     chan struct{} // fechado para pedir que pare
+	parada  chan struct{} // fechado quando tudo terminou
+	geracao int           // cada (re)início invalida o acompanhamento anterior
 }
 
 func novaTransmissao() *Transmissao {
@@ -28,6 +32,48 @@ func (t *Transmissao) definir(status string) {
 	t.mu.Lock()
 	t.status = status
 	t.mu.Unlock()
+}
+
+// acompanhar só diz AO VIVO quando a sala confirma que o vídeo chegou nela.
+// Abrir o programa de captura não garante isso: a conexão pode nunca fechar.
+func (t *Transmissao) acompanhar(whip, nome, detalhes string) {
+	t.mu.Lock()
+	t.geracao++
+	g := t.geracao
+	t.status = "Conectando à sala… " + detalhes
+	t.mu.Unlock()
+	definir := func(s string) {
+		t.mu.Lock()
+		if t.geracao == g {
+			t.status = s
+		}
+		t.mu.Unlock()
+	}
+	api := strings.TrimSuffix(whip, nome+"/whip") + "api/ao-vivo"
+	go func() {
+		inicio := time.Now()
+		for {
+			select {
+			case <-t.fim:
+				return
+			case <-time.After(2 * time.Second):
+			}
+			if corpo, err := lerURL(api); err == nil {
+				var lista []transmissao
+				if json.Unmarshal([]byte(corpo), &lista) == nil {
+					for _, item := range lista {
+						if item.Nome == nome {
+							definir("AO VIVO: " + detalhes)
+							return
+						}
+					}
+				}
+			}
+			if time.Since(inicio) > 30*time.Second {
+				definir("O vídeo ainda NÃO chegou na sala: ninguém consegue ver. Continuo tentando. " + detalhes)
+			}
+		}
+	}()
 }
 
 // cancelar pede para parar sem esperar.

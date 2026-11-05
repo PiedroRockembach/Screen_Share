@@ -36,17 +36,21 @@ Abra o programa com dois cliques. O painel aparece no navegador.
 ## Como funciona
 
 ```
-Quem cria a sala                                      Convidados
- Sala de Tela ── MediaMTX (WebRTC)                    navegador / Sala de Tela
-      │                 ▲   ▲ vídeo P2P (UDP 47804) ──────┘
-      └── Tailscale Funnel: https://<pc>.ts.net/s/<código>/  ◄── página, WHIP, WHEP
+Quem cria a sala                                           Convidados
+ Sala de Tela ── MediaMTX (WebRTC) ── TURN (retransmissão)
+      │
+      └── Tailscale Funnel ── https://<pc>.ts.net/s/<código>/   ◄── página, WHIP, WHEP
+                          └── https://<pc>.ts.net:8443          ◄── vídeo (TURN sobre TLS)
 ```
 
-- **Funnel:** publica só a página e a negociação (WHIP/WHEP) num HTTPS público e fixo.
-  Sem o `<código>` certo, o servidor responde 404. **Trocar o link** gera um código novo
-  e o antigo para de funcionar.
-- **Vídeo:** vai **direto** entre os PCs pela internet (WebRTC com STUN). Não passa
-  pelo Tailscale e não depende de VPN.
+- **Funnel:** publica a página, a negociação (WHIP/WHEP) e a retransmissão de vídeo
+  num HTTPS público e fixo. Sem o `<código>` certo, o servidor responde 404.
+  **Trocar o link** gera um código novo e o antigo para de funcionar.
+- **Vídeo:** nos dois sentidos, passa pela retransmissão (TURN) embutida no programa, que o
+  Funnel publica na porta 8443. Funciona atrás de roteador, CGNAT ou agregador de conexões
+  (net-merge, Speedify), porque para a rede é só HTTPS. A retransmissão só entrega pacotes
+  para o próprio PC; não serve de proxy para mais nada.
+- **AO VIVO:** só aparece quando a sala confirma que o vídeo chegou nela.
 - **Transmitir no Windows:** GStreamer, instalado sozinho na primeira vez (~540 MB).
   Ele captura a tela, usa o codificador de vídeo da placa (NVIDIA/AMD/Intel) e pega o som
   do PC **excluindo os processos do Discord** (Windows 11). Sem o app do Discord aberto,
@@ -55,12 +59,12 @@ Quem cria a sala                                      Convidados
   Enquanto você transmite, todos os apps tocam numa saída virtual "sala_de_tela",
   menos o Discord, e o OBS captura só essa saída. Ao parar, tudo volta ao normal.
 
-Tudo é gratuito: Tailscale (plano pessoal), MediaMTX, GStreamer, OBS e os servidores STUN públicos.
+Tudo é gratuito: Tailscale (plano pessoal), MediaMTX, GStreamer e OBS.
 
 ## Limitações conhecidas
 
-- **Redes muito restritas:** como o vídeo vai direto entre os PCs, algumas redes (certos
-  4G/CGNAT ou redes de empresa) podem não conectar. Não há servidor de retransmissão gratuito.
+- **Banda do Funnel:** todo o vídeo dos convidados passa pelos servidores do Tailscale.
+  Ele aplica limites de banda que não divulga; com muita gente, a qualidade pode cair.
 - **Windows sem testes:** a transmissão no Windows ainda não foi testada num PC real. Antes
   de usar de verdade, faça um teste numa chamada: a voz do Discord **não** pode aparecer
   na transmissão. Se aparecer, desmarque "Transmitir o som do PC".
