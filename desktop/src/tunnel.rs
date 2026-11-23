@@ -390,7 +390,6 @@ fn open_flow(srt_port: u16, session: u64, flow_id: u16, peer: Arc<Mutex<Peer>>) 
 /// server were on this PC, relayed through the tunnel.
 pub struct Guest {
     pub local_port: u16,
-    pub host: SocketAddr,
     live: Arc<Mutex<Vec<String>>>,
     last_pong: Arc<Mutex<Instant>>,
     stop: Arc<AtomicBool>,
@@ -510,7 +509,7 @@ impl Guest {
                 }
             });
         }
-        Ok(Self { local_port, host, live, last_pong, stop })
+        Ok(Self { local_port, live, last_pong, stop })
     }
 
     pub fn live(&self) -> Vec<String> {

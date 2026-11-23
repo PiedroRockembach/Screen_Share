@@ -22,11 +22,29 @@ struct Encoder {
     d3d11: bool,
 }
 
+/// Bitrate is super::MAX_KBPS (20000) and the VBV a tenth of a second of it.
+/// Each list tries the full quality settings first, then plainer ones.
 const CANDIDATES: &[(&str, &str, bool, &[&str])] = &[
-    ("NVIDIA", "nvd3d11h264enc", true, &["bitrate=9000 gop-size=60 bframes=0 rc-mode=cbr zero-reorder-delay=true", "bitrate=9000"]),
-    ("AMD", "amfh264enc", true, &["bitrate=9000 gop-size=60 rate-control=cbr usage=low-latency", "bitrate=9000"]),
-    ("Intel", "qsvh264enc", true, &["bitrate=9000 gop-size=60 b-frames=0 rate-control=cbr", "bitrate=9000"]),
-    ("Windows", "mfh264enc", false, &["bitrate=9000 gop-size=60 bframes=0 rc-mode=cbr low-latency=true", "bitrate=9000"]),
+    ("placa NVIDIA", "nvd3d11h264enc", true, &[
+        "bitrate=20000 vbv-buffer-size=2000 gop-size=60 bframes=0 rc-mode=cbr zero-reorder-delay=true preset=p5 tune=low-latency spatial-aq=true",
+        "bitrate=20000 gop-size=60 bframes=0 rc-mode=cbr zero-reorder-delay=true",
+        "bitrate=20000",
+    ]),
+    ("placa AMD", "amfh264enc", true, &[
+        "bitrate=20000 gop-size=60 rate-control=cbr usage=low-latency preset=quality",
+        "bitrate=20000 gop-size=60 rate-control=cbr usage=low-latency",
+        "bitrate=20000",
+    ]),
+    ("placa Intel", "qsvh264enc", true, &[
+        "bitrate=20000 gop-size=60 b-frames=0 rate-control=cbr target-usage=3",
+        "bitrate=20000 gop-size=60 b-frames=0 rate-control=cbr",
+        "bitrate=20000",
+    ]),
+    ("codificador do Windows", "mfh264enc", false, &[
+        "bitrate=20000 gop-size=60 bframes=0 rc-mode=cbr low-latency=true quality-vs-speed=70",
+        "bitrate=20000 gop-size=60 bframes=0 rc-mode=cbr low-latency=true",
+        "bitrate=20000",
+    ]),
 ];
 
 fn conversion(d3d11: bool) -> &'static str {
@@ -98,9 +116,16 @@ fn excludes_processes() -> bool {
     gst::ElementFactory::make("wasapi2src").build().is_ok_and(|e| e.has_property("loopback-mode"))
 }
 
-fn build(encoder: &Encoder, uri: &str, discord_pid: Option<u32>) -> Result<gst::Element> {
+/// How many monitors this PC has; "Trocar tela" walks through them.
+pub fn monitor_count() -> u32 {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CMONITORS};
+    // SAFETY: plain query with no pointers.
+    unsafe { GetSystemMetrics(SM_CMONITORS) }.max(1) as u32
+}
+
+fn build(encoder: &Encoder, uri: &str, monitor: u32, discord_pid: Option<u32>) -> Result<gst::Element> {
     let mut description = format!(
-        "d3d11screencapturesrc show-cursor=true ! video/x-raw(memory:D3D11Memory),framerate=60/1 \
+        "d3d11screencapturesrc show-cursor=true monitor-index={monitor} ! video/x-raw(memory:D3D11Memory),framerate=60/1 \
          ! d3d11convert ! video/x-raw(memory:D3D11Memory),width=1920,height=1080,pixel-aspect-ratio=1/1{} \
          ! queue max-size-buffers=2 leaky=downstream ! {}{}",
         conversion(encoder.d3d11),
@@ -120,11 +145,11 @@ fn build(encoder: &Encoder, uri: &str, discord_pid: Option<u32>) -> Result<gst::
 
 fn sound_note(with_audio: bool, pid: Option<u32>, roots: usize, supported: bool) -> &'static str {
     match (with_audio, pid, roots, supported) {
-        (false, ..) => "sem som",
-        (true, _, _, false) => "sem som: este Windows não permite tirar o Discord do áudio",
-        (true, Some(_), ..) => "com o som do PC, sem o Discord",
-        (true, None, 0, _) => "sem som: abra o app do Discord e o som liga sozinho",
-        (true, None, _, _) => "sem som: há mais de um Discord aberto",
+        (false, ..) => "Sem som.",
+        (true, _, _, false) => "Sem som: este Windows não permite tirar o Discord do áudio.",
+        (true, Some(_), ..) => "Com o som do PC, sem o Discord.",
+        (true, None, 0, _) => "Sem som por enquanto: abra o Discord e o som liga sozinho.",
+        (true, None, _, _) => "Sem som: há mais de um Discord aberto.",
     }
 }
 
@@ -142,20 +167,20 @@ impl Drop for Sender {
     }
 }
 
-pub fn start(uri: &str, with_audio: bool, on_error: impl Fn(String) + Send + Sync + 'static) -> Result<(Sender, String)> {
+pub fn start(uri: &str, with_audio: bool, monitor: u32, on_error: impl Fn(String) + Send + Sync + 'static) -> Result<(Sender, super::Summary)> {
     let encoder = choose_encoder()?;
     let supported = excludes_processes();
     let roots = discord_roots();
     // No Discord found means no audio at all: never risk the call's voice.
     let pid = (with_audio && supported && roots.len() == 1).then(|| roots[0]);
     let on_error = Arc::new(on_error);
-    let pipeline = build(&encoder, uri, pid)?;
+    let pipeline = build(&encoder, uri, monitor, pid)?;
     {
         let on_error = on_error.clone();
         watch_errors(&pipeline, move |m| on_error(m));
     }
     pipeline.set_state(gst::State::Playing).context("iniciar a transmissão")?;
-    let summary = format!("1080p60, {}, {}", encoder.name, sound_note(with_audio, pid, roots.len(), supported));
+    let summary = super::Summary { encoder: encoder.name, sound: sound_note(with_audio, pid, roots.len(), supported) };
 
     let stop = Arc::new(AtomicBool::new(false));
     let current = Arc::new(Mutex::new(Some(pipeline)));
@@ -183,7 +208,7 @@ pub fn start(uri: &str, with_audio: bool, on_error: impl Fn(String) + Send + Syn
                     break;
                 }
                 excluded = wanted;
-                match build(&encoder, &uri, wanted) {
+                match build(&encoder, &uri, monitor, wanted) {
                     Ok(p) => {
                         let on_error = on_error.clone();
                         watch_errors(&p, move |m| on_error(m));

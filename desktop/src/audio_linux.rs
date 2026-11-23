@@ -218,9 +218,9 @@ fn adjust() {
             let Some(&input) = sink_inputs.get(*target) else { continue };
             let linked = links.contains(&(port, input));
             if discord && linked {
-                let _ = Command::new("pw-link").args(["-d", &port.to_string(), &input.to_string()]).status();
+                let _ = Command::new("pw-link").args(["-d", &port.to_string(), &input.to_string()]).stdout(Stdio::null()).stderr(Stdio::null()).status();
             } else if !discord && !linked && !is_not_an_app(props) {
-                let _ = Command::new("pw-link").args([&port.to_string(), &input.to_string()]).status();
+                let _ = Command::new("pw-link").args([&port.to_string(), &input.to_string()]).stdout(Stdio::null()).stderr(Stdio::null()).status();
             }
         }
     }

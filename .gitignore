@@ -1,3 +1,4 @@
 dist/
 desktop/target/
 desktop/installer/bundle/
+.impeccable/review/

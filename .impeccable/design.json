@@ -1,0 +1,43 @@
+{
+  "world": "sala-a-noite",
+  "mode": "operate",
+  "source": "desktop/ui/app.slint",
+  "color": {
+    "wall": "#15110e",
+    "wall-raised": "#211b18",
+    "wall-line": "#332d28",
+    "wall-text": "#efebe6",
+    "wall-text-2": "#c2b7ae",
+    "velvet": "#14292e",
+    "velvet-raised": "#1e373e",
+    "velvet-hover": "#26424a",
+    "velvet-line": "#2f4950",
+    "velvet-control": "#648790",
+    "text": "#ebf3f4",
+    "text-2": "#bbcfd3",
+    "text-3": "#95adb2",
+    "lamp": "#f6ae31",
+    "lamp-hover": "#fbbc51",
+    "lamp-press": "#f0960f",
+    "lamp-ink": "#301b08",
+    "live": "#e93b35",
+    "live-text": "#fa9189",
+    "danger": "#ca2621",
+    "danger-hover": "#b31f1b"
+  },
+  "type": {
+    "family": "Atkinson Hyperlegible Next",
+    "mono": "Atkinson Hyperlegible Mono",
+    "weights": [400, 700],
+    "sizes": [12, 14, 16, 20]
+  },
+  "space": [4, 8, 12, 16, 24, 32, 48],
+  "radius": 6,
+  "shadow": "none",
+  "motion": {
+    "easing": "cubic-bezier(0.23, 1, 0.32, 1)",
+    "state": "150ms",
+    "ambient": "400ms"
+  },
+  "icons": "lucide-static@0.469.0, stroke 2, 16px"
+}

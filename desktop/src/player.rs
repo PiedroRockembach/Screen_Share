@@ -20,7 +20,8 @@ impl Drop for Player {
 }
 
 fn decoder() -> &'static str {
-    ["nvh264dec", "vah264dec", "d3d11h264dec", "avdec_h264"]
+    // OpenH264 last: on Fedora without RPM Fusion it may be the only one.
+    ["nvh264dec", "vah264dec", "d3d11h264dec", "avdec_h264", "openh264dec"]
         .into_iter()
         .find(|d| gst::ElementFactory::find(d).is_some())
         .unwrap_or("avdec_h264")

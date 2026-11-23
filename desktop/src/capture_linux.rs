@@ -8,6 +8,8 @@ use std::os::fd::OwnedFd;
 pub struct ScreenCapture {
     pub fd: OwnedFd,
     pub node: u32,
+    /// Size of the chosen monitor, to tell the person which one is on air.
+    pub size: Option<(i32, i32)>,
     _session: Box<dyn std::any::Any + Send>,
 }
 
@@ -33,8 +35,9 @@ pub async fn request(restore_token: Option<String>) -> Result<(ScreenCapture, Op
         .await?
         .response()
         .context("a captura da tela foi cancelada")?;
-    let node = streams.streams().first().context("nenhuma tela foi escolhida")?.pipe_wire_node_id();
+    let stream = streams.streams().first().context("nenhuma tela foi escolhida")?;
+    let (node, size) = (stream.pipe_wire_node_id(), stream.size());
     let token = streams.restore_token().map(str::to_owned);
     let fd = proxy.open_pipe_wire_remote(&session, OpenPipeWireRemoteOptions::default()).await?;
-    Ok((ScreenCapture { fd, node, _session: Box::new((proxy, session)) }, token))
+    Ok((ScreenCapture { fd, node, size, _session: Box::new((proxy, session)) }, token))
 }

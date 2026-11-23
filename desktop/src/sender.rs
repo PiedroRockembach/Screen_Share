@@ -14,7 +14,7 @@ use crate::{audio_linux::AudioRouting, capture_linux::ScreenCapture};
 #[path = "sender_windows.rs"]
 mod windows_impl;
 #[cfg(windows)]
-pub use windows_impl::{Sender, start};
+pub use windows_impl::{Sender, monitor_count, start};
 
 #[cfg(target_os = "linux")]
 pub struct Sender {
@@ -37,19 +37,78 @@ fn has(element: &str) -> bool {
     gst::ElementFactory::find(element).is_some()
 }
 
-/// Output is always 1080p60. NVENC first, then VA-API, then the CPU.
+/// Output is always 1080p60. NVENC first, then VA-API, then the CPU (x264, or
+/// OpenH264 where x264 isn't packaged, as on Fedora). Each list starts with
+/// the full quality settings and falls back to plainer ones: older GStreamer
+/// (Debian 12 has 1.22) lacks NVENC's p1-p7 presets and tunes.
+/// Fast motion needs room: the VBV buffer holds a tenth of a second of video.
+/// Larger (a quarter second) made keyframes of ~600 KB that overflowed the
+/// receiving sockets in one burst.
 #[cfg(target_os = "linux")]
-fn encoder() -> (&'static str, &'static str) {
-    if has("nvh264enc") {
-        (
-            "NVIDIA",
-            "nvh264enc name=enc bitrate=9000 rc-mode=cbr gop-size=60 bframes=0 zerolatency=true preset=p4 tune=ultra-low-latency ! video/x-h264,profile=high",
-        )
-    } else if has("vah264enc") {
-        ("VA-API", "vah264enc name=enc bitrate=9000 rate-control=cbr key-int-max=60 b-frames=0")
-    } else {
-        ("processador", "x264enc name=enc bitrate=9000 tune=zerolatency speed-preset=ultrafast key-int-max=60 bframes=0")
+const CANDIDATES: &[(&str, &str, &str, &[&str])] = &[
+    ("placa NVIDIA", "nvh264enc", "", &[
+        "bitrate=20000 rc-mode=cbr vbv-buffer-size=2000 gop-size=60 bframes=0 zerolatency=true preset=p5 tune=low-latency spatial-aq=true",
+        "bitrate=20000 rc-mode=cbr vbv-buffer-size=2000 gop-size=60 bframes=0 zerolatency=true preset=low-latency-hq",
+        "bitrate=20000",
+    ]),
+    ("placa de vídeo", "vah264enc", "", &[
+        "bitrate=20000 cpb-size=2000 rate-control=cbr key-int-max=60 b-frames=0",
+        "bitrate=20000 rate-control=cbr key-int-max=60 b-frames=0",
+        "bitrate=20000",
+    ]),
+    ("processador", "x264enc", "", &[
+        "bitrate=20000 vbv-buf-capacity=100 tune=zerolatency speed-preset=superfast key-int-max=60 bframes=0",
+        "bitrate=20000 tune=zerolatency speed-preset=ultrafast",
+    ]),
+    // OpenH264 takes only I420 and counts the bitrate in bit/s (adapt_bitrate
+    // converts).
+    ("processador", "openh264enc", "videoconvert ! video/x-raw,format=I420 ! ", &[
+        "bitrate=20000000 rate-control=bitrate gop-size=60 complexity=low multi-thread=0",
+        "bitrate=20000000",
+    ]),
+];
+
+/// Encodes a few test frames with each candidate; the first that works wins.
+#[cfg(target_os = "linux")]
+fn encoder() -> Result<(&'static str, String)> {
+    use std::sync::Mutex;
+    static CHOSEN: Mutex<Option<(&'static str, String)>> = Mutex::new(None);
+    if let Some(chosen) = CHOSEN.lock().unwrap().clone() {
+        return Ok(chosen);
     }
+    for (name, factory, input, props) in CANDIDATES {
+        if !has(factory) {
+            continue;
+        }
+        for p in *props {
+            let element = format!("{input}{factory} name=enc {p}");
+            let test = format!(
+                "videotestsrc num-buffers=30 ! video/x-raw,format=NV12,width=1920,height=1080,framerate=60/1 ! {element} ! h264parse ! fakesink"
+            );
+            let Ok(pipeline) = gst::parse::launch(&test) else { continue };
+            let ok = pipeline.set_state(gst::State::Playing).is_ok()
+                && pipeline
+                    .bus()
+                    .and_then(|bus| {
+                        bus.timed_pop_filtered(gst::ClockTime::from_seconds(20), &[gst::MessageType::Eos, gst::MessageType::Error])
+                    })
+                    .is_some_and(|m| matches!(m.view(), gst::MessageView::Eos(_)));
+            let _ = pipeline.set_state(gst::State::Null);
+            if ok {
+                *CHOSEN.lock().unwrap() = Some((name, element.clone()));
+                return Ok((name, element));
+            }
+        }
+    }
+    anyhow::bail!("nenhum codificador de vídeo funcionou neste PC: instale os plugins do GStreamer (x264 ou OpenH264)")
+}
+
+/// What the window shows about a running transmission.
+pub struct Summary {
+    /// Where the video is encoded, as a person would say it ("placa NVIDIA").
+    pub encoder: &'static str,
+    /// Whether the PC's sound goes along, as a full sentence.
+    pub sound: &'static str,
 }
 
 /// The server only announces the tracks it sees first and the encoder is slow
@@ -62,9 +121,10 @@ fn tail(uri: &str) -> String {
     )
 }
 
-/// Bitrate range in kbit/s. The picture stays 1080p60: a weak upload gets a
-/// softer image instead of stalls and smears.
-const MAX_KBPS: u32 = 9000;
+/// Bitrate range in kbit/s. 1080p60 with fast motion needs ~20 Mbps to stay
+/// clean; a weak upload gets a softer image instead of stalls and smears.
+/// The encoder lists (CANDIDATES here and in sender_windows.rs) repeat it.
+pub const MAX_KBPS: u32 = 20000;
 const MIN_KBPS: u32 = 2000;
 
 /// Follows the SRT connection end to end (through the tunnel too). An RTT well
@@ -79,17 +139,14 @@ pub fn adapt_bitrate(current: impl Fn() -> Option<gst::Element> + Send + 'static
         let mut last: Option<(i64, i64)> = None;
         let mut calm_since = Instant::now();
         let mut hold_until = Instant::now();
-        let mut was_queued = false;
+        let mut queued_for = 0u32;
         while !stop.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(500));
             let Some(bin) = current().and_then(|p| p.downcast::<gst::Bin>().ok()) else { continue };
+            // Every encoder we use applies a new bitrate while playing, even
+            // those whose property doesn't say so: qsvh264enc resets its
+            // session and mfh264enc reopens itself (GStreamer 1.28 sources).
             let (Some(enc), Some(out)) = (bin.by_name("enc"), bin.by_name("out")) else { continue };
-            let mutable = enc
-                .find_property("bitrate")
-                .is_some_and(|p| p.flags().contains(gst::PARAM_FLAG_MUTABLE_PLAYING));
-            if !mutable {
-                continue;
-            }
             let Ok(Some(stats)) = out.property_value("stats").get::<Option<gst::Structure>>() else { continue };
             let (Ok(rtt), Ok(sent)) = (stats.get::<f64>("rtt-ms"), stats.get::<i64>("packets-sent")) else { continue };
             // Lost packets that SRT resends in time are harmless (Wi-Fi has
@@ -113,13 +170,13 @@ pub fn adapt_bitrate(current: impl Fn() -> Option<gst::Element> + Send + 'static
             }
             let base = rtts.iter().copied().fold(f64::MAX, f64::min);
             let drops = if sent_delta > 0 { dropped_delta as f64 / sent_delta as f64 } else { 0.0 };
-            // A keyframe alone lifts the RTT for an instant; a real queue
-            // keeps it up for at least two samples in a row.
-            let queued = rtt > base * 2.0 + 40.0;
-            let congested = (queued && was_queued) || drops > 0.01;
-            was_queued = queued;
+            // A keyframe or Wi-Fi jitter lifts the RTT for an instant; a real
+            // queue keeps it well up for 1.5 s.
+            queued_for = if rtt > (base + 60.0).max(base * 2.0) { queued_for + 1 } else { 0 };
+            let congested = queued_for >= 3 || drops > 0.01;
 
             let now = Instant::now();
+            let before = kbps;
             if congested {
                 calm_since = now;
                 if now >= hold_until {
@@ -127,24 +184,33 @@ pub fn adapt_bitrate(current: impl Fn() -> Option<gst::Element> + Send + 'static
                     // Give the queue time to drain before judging again.
                     hold_until = now + Duration::from_secs(2);
                 }
-            } else if calm_since.elapsed() >= Duration::from_secs(4) && kbps < MAX_KBPS {
-                kbps = (kbps * 11 / 10).min(MAX_KBPS);
+            } else if calm_since.elapsed() >= Duration::from_secs(3) && kbps < MAX_KBPS {
+                kbps = (kbps * 115 / 100).min(MAX_KBPS);
                 calm_since = now;
             }
+            if kbps != before {
+                eprintln!("taxa: {before} -> {kbps} kbit/s (rtt {rtt:.0} ms, mínimo {base:.0} ms, descartes {:.1}%)", drops * 100.0);
+            }
+            // OpenH264 counts bit/s, every other encoder kbit/s.
+            let unit = if enc.factory().is_some_and(|f| f.name() == "openh264enc") { 1000 } else { 1 };
             let applied = enc.property_value("bitrate").get::<u32>().ok();
-            if applied != Some(kbps) {
-                enc.set_property_from_str("bitrate", &kbps.to_string());
+            if applied != Some(kbps * unit) {
+                enc.set_property_from_str("bitrate", &(kbps * unit).to_string());
+                // The burst allowance follows the rate: a tenth of a second.
+                if enc.find_property("vbv-buffer-size").is_some() {
+                    enc.set_property_from_str("vbv-buffer-size", &(kbps / 10).to_string());
+                }
             }
         }
     });
 }
 
 #[cfg(target_os = "linux")]
-pub fn start(capture: ScreenCapture, uri: &str, with_audio: bool, on_error: impl Fn(String) + Send + 'static) -> Result<(Sender, String)> {
+pub fn start(capture: ScreenCapture, uri: &str, with_audio: bool, on_error: impl Fn(String) + Send + 'static) -> Result<(Sender, Summary)> {
     use std::os::fd::AsRawFd;
 
     let audio = if with_audio { AudioRouting::start() } else { None };
-    let (encoder_name, encoder) = encoder();
+    let (encoder_name, encoder) = encoder()?;
     let mut description = format!(
         "pipewiresrc fd={} path={} do-timestamp=true keepalive-time=100 ! videorate ! videoconvertscale n-threads=4 \
          ! video/x-raw,format=NV12,width=1920,height=1080,framerate=60/1,pixel-aspect-ratio=1/1 \
@@ -165,11 +231,11 @@ pub fn start(capture: ScreenCapture, uri: &str, with_audio: bool, on_error: impl
     watch_errors(&pipeline, on_error);
     pipeline.set_state(gst::State::Playing).context("iniciar a transmissão")?;
     let sound = match (with_audio, audio.is_some()) {
-        (false, _) => "sem som",
-        (true, true) => "com o som do PC, sem o Discord",
-        (true, false) => "sem som: não consegui criar a saída de áudio da Sala",
+        (false, _) => "Sem som.",
+        (true, true) => "Com o som do PC, sem o Discord.",
+        (true, false) => "Sem som: não deu para criar a saída de áudio da sala.",
     };
-    let summary = format!("1080p60, {encoder_name}, {sound}");
+    let summary = Summary { encoder: encoder_name, sound };
     let stop = Arc::new(AtomicBool::new(false));
     {
         let pipeline = pipeline.clone();

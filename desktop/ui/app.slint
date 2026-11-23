@@ -1,30 +1,85 @@
-import { Button, CheckBox, LineEdit } from "std-widgets.slint";
+// Sala de Tela: a sala de casa à noite, com a TV ligada.
+// Painel em petróleo (o sofá), paredes na penumbra em volta do vídeo, ação
+// primária em âmbar (o abajur) e vermelho só para "no ar". O fundo em volta do
+// vídeo acende com a cor média da imagem (luz ambiente), calculada no Rust.
+
+import "./fonts/AtkinsonHyperlegibleNext-Regular.ttf";
+import "./fonts/AtkinsonHyperlegibleNext-Bold.ttf";
+import "./fonts/AtkinsonHyperlegibleMono-Regular.ttf";
 
 global Theme {
-    out property <color> stage: #0b0e12;
-    out property <color> panel: #161b21;
-    out property <color> line: #262d36;
-    out property <color> row-hover: #1e252d;
-    out property <color> row-active: #233040;
-    out property <color> text: #e7ebf0;
-    out property <color> text-muted: #a3adb9;
-    out property <color> primary: #1f7a52;
-    out property <color> primary-hover: #238a5d;
-    out property <color> live: #e5534b;
-    out property <color> error: #f4a29b;
+    // Parede: penumbra quente em volta do vídeo.
+    out property <color> wall: #15110e;
+    out property <color> wall-raised: #211b18;
+    out property <color> wall-line: #332d28;
+    out property <color> wall-text: #efebe6;
+    out property <color> wall-text-2: #c2b7ae;
+    // Veludo: o painel lateral.
+    out property <color> velvet: #14292e;
+    out property <color> velvet-raised: #1e373e;
+    out property <color> velvet-hover: #26424a;
+    out property <color> velvet-line: #2f4950;
+    out property <color> velvet-control: #648790;
+    out property <color> text: #ebf3f4;
+    out property <color> text-2: #bbcfd3;
+    out property <color> text-3: #95adb2;
+    // Abajur: a ação primária.
+    out property <color> lamp: #f6ae31;
+    out property <color> lamp-hover: #fbbc51;
+    out property <color> lamp-press: #f0960f;
+    out property <color> lamp-ink: #301b08;
+    // No ar, e o vermelho da confirmação destrutiva.
+    out property <color> live: #e93b35;
+    out property <color> live-text: #fa9189;
+    out property <color> danger: #ca2621;
+    out property <color> danger-hover: #b31f1b;
+
+    out property <duration> quick: 150ms;
+    out property <easing> out-expo: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-component PrimaryButton inherits Rectangle {
+component Icon inherits Image {
+    width: 16px;
+    height: 16px;
+    image-fit: contain;
+}
+
+export enum ButtonKind { primary, secondary, ghost, ghost-on-wall, danger }
+
+component Button inherits Rectangle {
     in property <string> text;
+    in property <image> icon;
+    in property <ButtonKind> kind: ButtonKind.secondary;
     in property <bool> enabled: true;
+    // Keeps the colors while an action is running; only the label changes.
+    in property <bool> busy;
     callback clicked;
-    height: 40px;
+
+    property <bool> active: root.enabled && !root.busy;
+    property <bool> dimmed: !root.enabled && !root.busy;
+    property <color> fill: root.dimmed
+        ? (root.kind == ButtonKind.ghost || root.kind == ButtonKind.ghost-on-wall ? transparent : Theme.velvet-raised)
+        : root.kind == ButtonKind.primary ? (touch.pressed ? Theme.lamp-press : touch.has-hover && root.active ? Theme.lamp-hover : Theme.lamp)
+        : root.kind == ButtonKind.danger ? (touch.pressed || touch.has-hover ? Theme.danger-hover : Theme.danger)
+        : root.kind == ButtonKind.secondary ? (touch.pressed ? Theme.velvet-line : touch.has-hover && root.active ? Theme.velvet-hover : Theme.velvet-raised)
+        : root.kind == ButtonKind.ghost ? (touch.pressed ? Theme.velvet-hover : touch.has-hover ? Theme.velvet-raised : transparent)
+        : (touch.pressed ? Theme.wall-line : touch.has-hover ? Theme.wall-line : transparent);
+    property <color> ink: root.dimmed ? (root.kind == ButtonKind.ghost-on-wall ? Theme.wall-line : Theme.text-3)
+        : root.kind == ButtonKind.primary ? Theme.lamp-ink
+        : root.kind == ButtonKind.danger ? #ffffff
+        : root.kind == ButtonKind.ghost ? (touch.has-hover ? Theme.text : Theme.text-2)
+        : root.kind == ButtonKind.ghost-on-wall ? (touch.has-hover ? Theme.wall-text : Theme.wall-text-2)
+        : Theme.text;
+
+    height: root.kind == ButtonKind.ghost || root.kind == ButtonKind.ghost-on-wall ? 36px : 40px;
     border-radius: 6px;
-    background: !root.enabled ? Theme.line : touch.has-hover ? Theme.primary-hover : Theme.primary;
-    border-width: focus.has-focus ? 2px : 0px;
-    border-color: Theme.text;
+    background: root.fill;
+    border-width: focus.has-focus ? 2px : root.kind == ButtonKind.secondary ? 1px : 0px;
+    border-color: focus.has-focus ? Theme.text : Theme.velvet-control;
+    animate background { duration: Theme.quick; easing: Theme.out-expo; }
+
     focus := FocusScope {
-        enabled: root.enabled;
+        enabled: root.active;
         key-pressed(event) => {
             if (event.text == Key.Return || event.text == " ") {
                 root.clicked();
@@ -34,28 +89,192 @@ component PrimaryButton inherits Rectangle {
         }
     }
     touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: pointer;
+        enabled: root.active;
+        mouse-cursor: root.active ? pointer : default;
         clicked => {
-            focus.focus();
             root.clicked();
         }
     }
+    HorizontalLayout {
+        padding-left: root.kind == ButtonKind.ghost || root.kind == ButtonKind.ghost-on-wall ? 12px : 16px;
+        padding-right: self.padding-left;
+        spacing: 8px;
+        alignment: center;
+        if root.icon.width > 0: Icon {
+            y: (parent.height - self.height) / 2;
+            source: root.icon;
+            colorize: root.ink;
+        }
+        Text {
+            text: root.text;
+            color: root.ink;
+            font-size: 14px;
+            font-weight: 700;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+component TextField inherits Rectangle {
+    in property <string> placeholder;
+    in property <bool> enabled: true;
+    in property <bool> mono;
+    in-out property <string> text <=> input.text;
+    callback accepted();
+
+    height: 40px;
+    border-radius: 6px;
+    background: Theme.velvet-raised;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? Theme.lamp : Theme.velvet-control;
+    opacity: root.enabled ? 1 : 0.6;
+
+    Rectangle {
+        x: 12px;
+        width: parent.width - 24px;
+        clip: true;
+        if input.text == "": Text {
+            width: 100%;
+            height: 100%;
+            text: root.placeholder;
+            color: Theme.text-3;
+            font-size: 14px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        input := TextInput {
+            width: 100%;
+            height: 100%;
+            enabled: root.enabled;
+            single-line: true;
+            color: Theme.text;
+            font-size: 14px;
+            font-family: root.mono ? "Atkinson Hyperlegible Mono" : "Atkinson Hyperlegible Next";
+            vertical-alignment: center;
+            selection-background-color: #f6ae3166;
+            selection-foreground-color: Theme.text;
+            accepted => {
+                root.accepted();
+            }
+        }
+    }
+}
+
+component Toggle inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in-out property <bool> checked;
+
+    function flip() {
+        root.checked = !root.checked;
+    }
+
+    opacity: root.enabled ? 1 : 0.6;
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == Key.Return) {
+                root.flip();
+                return accept;
+            }
+            reject
+        }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => {
+            root.flip();
+        }
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        VerticalLayout {
+            padding-top: 2px;
+            alignment: start;
+            Rectangle {
+                width: 36px;
+                height: 20px;
+                border-radius: 10px;
+                background: root.checked ? Theme.lamp : Theme.velvet-raised;
+                border-width: focus.has-focus ? 2px : root.checked ? 0px : 1px;
+                border-color: focus.has-focus ? Theme.text : Theme.velvet-control;
+                Rectangle {
+                    x: root.checked ? 19px : 3px;
+                    y: 3px;
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 7px;
+                    background: root.checked ? Theme.lamp-ink : Theme.text-2;
+                    animate x { duration: Theme.quick; easing: Theme.out-expo; }
+                }
+            }
+        }
+        VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: root.label;
+                color: Theme.text;
+                font-size: 14px;
+                wrap: word-wrap;
+            }
+            if root.hint != "": Text {
+                text: root.hint;
+                color: Theme.text-3;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+component Note inherits HorizontalLayout {
+    // A line of status under a control: plain, or an error with its icon.
+    in property <string> text;
+    in property <bool> error;
+    spacing: 8px;
+    if root.error: Icon {
+        source: @image-url("icons/circle-alert.svg");
+        colorize: Theme.live-text;
+    }
     Text {
         text: root.text;
-        color: root.enabled ? #ffffff : Theme.text-muted;
+        color: root.error ? Theme.live-text : Theme.text-2;
         font-size: 14px;
-        font-weight: 600;
+        wrap: word-wrap;
+        horizontal-stretch: 1;
     }
+}
+
+component LiveDot inherits Rectangle {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: Theme.live;
 }
 
 component LiveRow inherits Rectangle {
     in property <string> name;
     in property <bool> active;
+    in property <bool> is-self;
     callback clicked;
+
     height: 40px;
     border-radius: 6px;
-    background: root.active ? Theme.row-active : touch.has-hover ? Theme.row-hover : transparent;
+    background: root.active ? Theme.velvet-hover : touch.has-hover ? Theme.velvet-raised : transparent;
+    border-width: focus.has-focus ? 2px : 0px;
+    border-color: Theme.text;
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
     touch := TouchArea {
         mouse-cursor: pointer;
         clicked => {
@@ -65,56 +284,97 @@ component LiveRow inherits Rectangle {
     HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
-        spacing: 8px;
-        alignment: start;
-        Rectangle {
-            width: 8px;
-            height: 8px;
+        spacing: 12px;
+        LiveDot {
             y: (parent.height - self.height) / 2;
-            border-radius: 4px;
-            background: Theme.live;
         }
         Text {
             text: root.name;
             color: Theme.text;
             font-size: 14px;
+            font-weight: root.active ? 700 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if root.is-self || root.active: Text {
+            text: root.active ? "assistindo" : "você";
+            color: Theme.text-3;
+            font-size: 12px;
             vertical-alignment: center;
         }
     }
 }
 
+component SectionTitle inherits Text {
+    vertical-stretch: 0;
+    color: Theme.text;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+component Chip inherits Rectangle {
+    in property <string> text;
+    height: 32px;
+    width: label.preferred-width + 24px;
+    border-radius: 6px;
+    background: #211b18e6;
+    label := Text {
+        text: root.text;
+        color: Theme.wall-text-2;
+        font-size: 14px;
+    }
+}
+
 export component AppWindow inherits Window {
-    title: "Sala de Tela";
-    default-font-family: "Noto Sans";
+    title: root.transmitting ? "Sala de Tela (ao vivo)" : "Sala de Tela";
+    default-font-family: "Atkinson Hyperlegible Next";
     preferred-width: 1280px;
     preferred-height: 760px;
     min-width: 960px;
     min-height: 600px;
-    background: Theme.stage;
+    background: Theme.wall;
 
     in-out property <string> name;
     in-out property <bool> with-audio: true;
     in property <bool> transmitting;
     in property <bool> busy;
+    // Linux always (the system picker); Windows with more than one monitor.
+    in property <bool> can-switch-screen: true;
+    // The screen on air ("Tela de 2560×1440"), and before going live the one
+    // that will be used, when it was chosen before.
+    in property <string> transmit-screen;
+    in property <string> next-screen;
+    // Before going live: "Transmitir outra tela" (Linux) or "Trocar tela" (Windows).
+    in property <string> other-screen-label: "Transmitir outra tela";
+    // Main line and technical detail of the current transmission.
     in property <string> transmit-status;
+    in property <string> transmit-detail;
     in property <string> error-text;
     in property <[string]> live;
     in property <string> watching;
     in property <image> frame;
     in property <bool> has-frame;
-    in property <string> stage-message: "Escolha uma transmissão na lista.";
+    // Set by Rust while connecting or after a failure; empty shows the default.
+    in property <string> stage-message;
     in-out property <bool> muted;
     in property <bool> fullscreen;
     in property <string> video-info;
+    // Average color of the picture, already dimmed: the ambient light.
+    in property <color> ambient: Theme.wall;
     // 0: no room, 1: hosting, 2: guest
     in property <int> room-state;
     in property <bool> room-busy;
+    // room-busy came from "Entrar" (looking for the room), not "Criar sala".
+    in property <bool> joining;
     in property <string> room-status;
+    in property <bool> room-connected: true;
     in property <string> invite-code;
     in-out property <string> invite-input;
 
     callback transmit(string, bool);
     callback stop-transmit();
+    callback switch-screen();
     callback watch(string);
     callback stop-watch();
     callback mute-changed(bool);
@@ -123,236 +383,529 @@ export component AppWindow inherits Window {
     callback join-room(string);
     callback leave-room();
 
+    property <bool> copied;
+    property <bool> confirm-close;
+    property <bool> esc-hint;
+    property <color> glow: root.has-frame ? root.ambient : Theme.wall;
+    animate glow { duration: 400ms; easing: Theme.out-expo; }
+
+    function set-muted(value: bool) {
+        root.muted = value;
+        root.mute-changed(value);
+    }
+
+    changed fullscreen => {
+        root.esc-hint = root.fullscreen;
+    }
+    changed room-state => {
+        root.confirm-close = false;
+        root.copied = false;
+    }
+
+    Timer {
+        interval: 2s;
+        running: root.copied;
+        triggered => {
+            root.copied = false;
+        }
+    }
+    Timer {
+        interval: 3s;
+        running: root.esc-hint;
+        triggered => {
+            root.esc-hint = false;
+        }
+    }
+
+    // Hidden: the invite is copied from here (TextInput owns the clipboard).
+    invite-copy := TextInput {
+        visible: false;
+        text: root.invite-code;
+        read-only: true;
+    }
+
     keys := FocusScope {
+        init => {
+            self.focus();
+        }
         key-pressed(event) => {
             if (event.text == Key.Escape && root.fullscreen) || (event.text == Key.F11 && root.watching != "") {
                 root.toggle-fullscreen();
                 return accept;
             }
+            if (event.text == "m" || event.text == "M") && root.watching != "" {
+                root.set-muted(!root.muted);
+                return accept;
+            }
             reject
         }
-    }
 
-    HorizontalLayout {
-        if !root.fullscreen: Rectangle {
-            width: 300px;
-            background: Theme.panel;
-            VerticalLayout {
-                padding: 24px;
-                spacing: 24px;
-                alignment: start;
-                Text {
-                    text: "Sala de Tela";
-                    color: Theme.text;
-                    font-size: 20px;
-                    font-weight: 600;
-                }
+        HorizontalLayout {
+            if !root.fullscreen: Rectangle {
+                width: 320px;
+                background: Theme.velvet;
                 VerticalLayout {
-                    spacing: 12px;
-                    if root.room-status != "": Text {
-                        text: root.room-status;
-                        color: Theme.text-muted;
-                        font-size: 14px;
-                        wrap: word-wrap;
+                    padding: 24px;
+                    spacing: 0px;
+
+                    Text {
+                        vertical-stretch: 0;
+                        text: "Sala de Tela";
+                        color: Theme.text;
+                        font-size: 20px;
+                        font-weight: 700;
                     }
-                    if root.room-state == 0: PrimaryButton {
-                        text: root.room-busy ? "Abrindo…" : "Criar sala";
-                        enabled: !root.room-busy;
-                        clicked => {
-                            root.create-room();
-                        }
-                    }
-                    if root.room-state == 0: HorizontalLayout {
-                        spacing: 8px;
-                        LineEdit {
-                            text <=> root.invite-input;
-                            placeholder-text: "ou cole um convite";
-                            enabled: !root.room-busy;
-                        }
+                    Rectangle { height: 32px; }
+
+                    // Sem sala: criar ou entrar.
+                    if root.room-state == 0: VerticalLayout {
+                        vertical-stretch: 0;
+                        spacing: 12px;
                         Button {
-                            text: "Entrar";
-                            enabled: !root.room-busy && root.invite-input != "";
+                            kind: ButtonKind.primary;
+                            text: root.room-busy && !root.joining ? "Abrindo a sala…" : "Criar sala";
+                            busy: root.room-busy && !root.joining;
+                            enabled: !root.joining;
                             clicked => {
-                                root.join-room(root.invite-input);
+                                root.create-room();
                             }
                         }
-                    }
-                    if root.room-state == 1: VerticalLayout {
-                        spacing: 8px;
-                        invite-field := LineEdit {
-                            text: root.invite-code;
-                            read-only: true;
+                        Note {
+                            text: root.room-status != "" && !root.joining ? root.room-status : "Você recebe um convite para mandar aos amigos no chat.";
+                        }
+                        Rectangle { height: 20px; }
+                        SectionTitle {
+                            text: "Entrar na sala de um amigo";
                         }
                         HorizontalLayout {
                             spacing: 8px;
-                            Button {
-                                text: "Copiar convite";
-                                clicked => {
-                                    invite-field.select-all();
-                                    invite-field.copy();
+                            TextField {
+                                text <=> root.invite-input;
+                                placeholder: "Cole o convite aqui";
+                                enabled: !root.room-busy;
+                                mono: root.invite-input != "";
+                                accepted => {
+                                    if root.invite-input != "" && !root.room-busy {
+                                        root.join-room(root.invite-input);
+                                    }
                                 }
                             }
                             Button {
+                                text: root.joining ? "Procurando…" : "Entrar";
+                                horizontal-stretch: 0;
+                                busy: root.joining;
+                                enabled: !root.room-busy && root.invite-input != "";
+                                clicked => {
+                                    root.join-room(root.invite-input);
+                                }
+                            }
+                        }
+                        if root.joining && root.room-status != "": Note {
+                            text: root.room-status;
+                        }
+                        if root.error-text != "": Note {
+                            text: root.error-text;
+                            error: true;
+                        }
+                    }
+
+                    // Anfitrião: o convite.
+                    if root.room-state == 1: VerticalLayout {
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        SectionTitle {
+                            text: "Sua sala";
+                        }
+                        Rectangle {
+                            height: 40px;
+                            border-radius: 6px;
+                            background: Theme.velvet-raised;
+                            Text {
+                                x: 12px;
+                                width: parent.width - 24px;
+                                text: root.invite-code;
+                                color: Theme.text-2;
+                                font-family: "Atkinson Hyperlegible Mono";
+                                font-size: 14px;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                        Button {
+                            icon: root.copied ? @image-url("icons/check.svg") : @image-url("icons/copy.svg");
+                            text: root.copied ? "Convite copiado" : "Copiar convite";
+                            clicked => {
+                                invite-copy.select-all();
+                                invite-copy.copy();
+                                root.copied = true;
+                            }
+                        }
+                        Text {
+                            text: "O convite continua valendo nas próximas vezes.";
+                            color: Theme.text-3;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    // Convidado: o estado da conexão.
+                    if root.room-state == 2: VerticalLayout {
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        SectionTitle {
+                            text: "Sala de um amigo";
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Icon {
+                                y: 2px;
+                                source: root.room-connected ? @image-url("icons/check.svg") : @image-url("icons/circle-alert.svg");
+                                colorize: root.room-connected ? Theme.text-2 : Theme.live-text;
+                            }
+                            Text {
+                                text: root.room-connected ? "Conectado" : "Sem resposta da sala. O PC de quem criou a sala continua ligado?";
+                                color: root.room-connected ? Theme.text-2 : Theme.live-text;
+                                font-size: 14px;
+                                wrap: word-wrap;
+                                horizontal-stretch: 1;
+                            }
+                        }
+                    }
+
+                    // Na sala: a sua transmissão.
+                    if root.room-state != 0: VerticalLayout {
+                        vertical-stretch: 0;
+                        padding-top: 32px;
+                        spacing: 12px;
+                        if !root.transmitting: VerticalLayout {
+                            spacing: 12px;
+                            VerticalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: "Seu nome";
+                                    color: Theme.text-2;
+                                    font-size: 14px;
+                                }
+                                TextField {
+                                    text <=> root.name;
+                                    placeholder: "Como os amigos vão te ver";
+                                    enabled: !root.busy;
+                                }
+                            }
+                            Toggle {
+                                label: "Levar o som do PC";
+                                hint: "A voz do Discord nunca vai junto.";
+                                checked <=> root.with-audio;
+                                enabled: !root.busy;
+                            }
+                            if root.next-screen != "": HorizontalLayout {
+                                spacing: 8px;
+                                Icon {
+                                    y: 2px;
+                                    source: @image-url("icons/monitor.svg");
+                                    colorize: Theme.text-2;
+                                }
+                                Text {
+                                    text: root.next-screen;
+                                    color: Theme.text-2;
+                                    font-size: 14px;
+                                    wrap: word-wrap;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                            Rectangle { height: 4px; }
+                            Button {
+                                kind: ButtonKind.primary;
+                                icon: @image-url("icons/cast.svg");
+                                text: root.busy ? "Preparando…" : "Transmitir minha tela";
+                                busy: root.busy;
+                                clicked => {
+                                    root.transmit(root.name, root.with-audio);
+                                }
+                            }
+                            if root.next-screen != "" && !root.busy: Button {
+                                icon: @image-url("icons/monitor.svg");
+                                text: root.other-screen-label;
+                                clicked => {
+                                    root.switch-screen();
+                                }
+                            }
+                            if root.busy && root.transmit-status != "": Note {
+                                text: root.transmit-status;
+                            }
+                        }
+                        if root.transmitting: VerticalLayout {
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                LiveDot {
+                                    y: (parent.height - self.height) / 2;
+                                }
+                                Text {
+                                    text: "Ao vivo como " + root.name;
+                                    color: Theme.text;
+                                    font-size: 16px;
+                                    font-weight: 700;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                            Text {
+                                text: root.transmit-status;
+                                color: Theme.text-2;
+                                font-size: 14px;
+                                wrap: word-wrap;
+                            }
+                            if root.transmit-screen != "": HorizontalLayout {
+                                spacing: 8px;
+                                Icon {
+                                    y: 2px;
+                                    source: @image-url("icons/monitor.svg");
+                                    colorize: Theme.text-2;
+                                }
+                                Text {
+                                    text: root.transmit-screen;
+                                    color: Theme.text-2;
+                                    font-size: 14px;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                            Text {
+                                text: root.transmit-detail;
+                                color: Theme.text-3;
+                                font-size: 12px;
+                            }
+                            Rectangle { height: 4px; }
+                            if root.can-switch-screen: Button {
+                                icon: @image-url("icons/monitor.svg");
+                                text: root.busy ? "Trocando a tela…" : "Trocar tela";
+                                busy: root.busy;
+                                clicked => {
+                                    root.switch-screen();
+                                }
+                            }
+                            Button {
+                                icon: @image-url("icons/circle-stop.svg");
+                                text: "Parar de transmitir";
+                                enabled: !root.busy;
+                                clicked => {
+                                    root.stop-transmit();
+                                }
+                            }
+                            if root.busy && root.transmit-status != "": Note {
+                                text: root.transmit-status;
+                            }
+                        }
+                        if root.error-text != "": Note {
+                            text: root.error-text;
+                            error: true;
+                        }
+                    }
+
+                    // Na sala: quem está ao vivo.
+                    if root.room-state != 0: VerticalLayout {
+                        padding-top: 32px;
+                        spacing: 8px;
+                        vertical-stretch: 1;
+                        SectionTitle {
+                            text: "Ao vivo agora";
+                        }
+                        if root.live.length == 0: Text {
+                            vertical-stretch: 0;
+                            text: "Ninguém transmitindo agora.";
+                            color: Theme.text-3;
+                            font-size: 14px;
+                            wrap: word-wrap;
+                        }
+                        // Scrolls with the wheel when the room has more people than fit.
+                        Flickable {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                alignment: start;
+                                spacing: 4px;
+                                for stream in root.live: LiveRow {
+                                    name: stream;
+                                    active: stream == root.watching;
+                                    is-self: root.transmitting && stream == root.name;
+                                    clicked => {
+                                        root.watch(stream);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if root.room-state == 0: Rectangle { vertical-stretch: 1; }
+
+                    // Sair: discreto, no pé do painel.
+                    if root.room-state == 1 && !root.confirm-close: Rectangle {
+                        height: 48px;
+                        vertical-stretch: 0;
+                        Button {
+                            // Pulled left by its own padding so the icon lines up with the panel.
+                            x: -12px;
+                            y: 12px;
+                            width: self.preferred-width;
+                            kind: ButtonKind.ghost;
+                            icon: @image-url("icons/log-out.svg");
+                            text: "Fechar sala";
+                            clicked => {
+                                root.confirm-close = true;
+                            }
+                        }
+                    }
+                    if root.room-state == 1 && root.confirm-close: VerticalLayout {
+                        vertical-stretch: 0;
+                        padding-top: 12px;
+                        spacing: 12px;
+                        Text {
+                            text: "Fechar a sala tira todo mundo dela. O convite continua valendo para a próxima.";
+                            color: Theme.text;
+                            font-size: 14px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Button {
+                                kind: ButtonKind.danger;
                                 text: "Fechar sala";
                                 clicked => {
+                                    root.confirm-close = false;
                                     root.leave-room();
                                 }
                             }
-                        }
-                    }
-                    if root.room-state == 2: Button {
-                        text: "Sair da sala";
-                        clicked => {
-                            root.leave-room();
-                        }
-                    }
-                }
-                VerticalLayout {
-                    spacing: 12px;
-                    VerticalLayout {
-                        spacing: 8px;
-                        Text {
-                            text: "Seu nome";
-                            color: Theme.text-muted;
-                            font-size: 14px;
-                        }
-                        LineEdit {
-                            text <=> root.name;
-                            placeholder-text: "como os amigos vão te ver";
-                            enabled: !root.transmitting && !root.busy;
-                        }
-                    }
-                    CheckBox {
-                        text: "Transmitir o som do PC (sem o Discord)";
-                        checked <=> root.with-audio;
-                        enabled: !root.transmitting && !root.busy;
-                    }
-                    if root.room-state != 0: PrimaryButton {
-                        text: root.transmitting ? "Parar de transmitir" : root.busy ? "Preparando…" : "Transmitir minha tela";
-                        enabled: !root.busy;
-                        clicked => {
-                            if (root.transmitting) {
-                                root.stop-transmit();
-                            } else {
-                                root.transmit(root.name, root.with-audio);
+                            Button {
+                                kind: ButtonKind.ghost;
+                                text: "Cancelar";
+                                clicked => {
+                                    root.confirm-close = false;
+                                }
                             }
                         }
                     }
-                    if root.transmit-status != "": Text {
-                        text: root.transmit-status;
-                        color: Theme.text-muted;
-                        font-size: 14px;
-                        wrap: word-wrap;
-                    }
-                    if root.error-text != "": Text {
-                        text: root.error-text;
-                        color: Theme.error;
-                        font-size: 14px;
-                        wrap: word-wrap;
-                    }
-                }
-                VerticalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: "Ao vivo";
-                        color: Theme.text-muted;
-                        font-size: 14px;
-                        font-weight: 600;
-                    }
-                    if root.live.length == 0: Text {
-                        text: "Ninguém transmitindo. Quando alguém começar, aparece aqui.";
-                        color: Theme.text-muted;
-                        font-size: 14px;
-                        wrap: word-wrap;
-                    }
-                    for stream in root.live: LiveRow {
-                        name: stream;
-                        active: stream == root.watching;
-                        clicked => {
-                            root.watch(stream);
+                    if root.room-state == 2: Rectangle {
+                        height: 48px;
+                        vertical-stretch: 0;
+                        Button {
+                            x: -12px;
+                            y: 12px;
+                            width: self.preferred-width;
+                            kind: ButtonKind.ghost;
+                            icon: @image-url("icons/log-out.svg");
+                            text: "Sair da sala";
+                            clicked => {
+                                root.leave-room();
+                            }
                         }
                     }
                 }
             }
-        }
-        VerticalLayout {
-            Rectangle {
-                background: Theme.stage;
-                if root.has-frame: Image {
-                    width: parent.width;
-                    height: parent.height;
-                    source: root.frame;
-                    image-fit: contain;
-                }
-                TouchArea {
-                    double-clicked => {
-                        if root.watching != "" {
-                            root.toggle-fullscreen();
-                            keys.focus();
+
+            VerticalLayout {
+                Rectangle {
+                    // A luz ambiente: a parede acende com a cor da imagem.
+                    background: @radial-gradient(circle, root.glow 0%, root.glow 35%, Theme.wall 100%);
+                    if root.has-frame: Image {
+                        width: parent.width;
+                        height: parent.height;
+                        source: root.frame;
+                        image-fit: contain;
+                    }
+                    TouchArea {
+                        double-clicked => {
+                            if root.watching != "" {
+                                root.toggle-fullscreen();
+                                keys.focus();
+                            }
                         }
                     }
-                }
-                if root.fullscreen && root.video-info != "": Rectangle {
-                    x: parent.width - self.width - 16px;
-                    y: 16px;
-                    width: info.preferred-width + 24px;
-                    height: 32px;
-                    border-radius: 6px;
-                    background: #0b0e12c0;
-                    info := Text {
+                    if !root.has-frame && root.room-state == 0: VerticalLayout {
+                        width: min(parent.width - 96px, 480px);
+                        alignment: center;
+                        spacing: 12px;
+                        Text {
+                            text: "Assista à tela dos amigos com o som do jogo, sem a voz da chamada.";
+                            color: Theme.wall-text;
+                            font-size: 20px;
+                            font-weight: 700;
+                            wrap: word-wrap;
+                        }
+                        Text {
+                            text: "Quem cria a sala recebe um convite para mandar no chat. Quem recebe cola o convite ao lado e entra. Dentro da sala, qualquer um transmite a própria tela.";
+                            color: Theme.wall-text-2;
+                            font-size: 16px;
+                            wrap: word-wrap;
+                        }
+                    }
+                    if !root.has-frame && root.room-state != 0: Text {
+                        width: min(parent.width - 96px, 480px);
+                        text: root.stage-message != "" ? root.stage-message
+                            : root.live.length == 0 ? "Quando alguém começar a transmitir, aparece em Ao vivo agora."
+                            : "Escolha alguém em Ao vivo agora para assistir.";
+                        color: Theme.wall-text-2;
+                        font-size: 16px;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    if root.fullscreen && root.video-info != "": Chip {
+                        x: parent.width - self.width - 16px;
+                        y: 16px;
                         text: root.video-info;
-                        color: Theme.text-muted;
-                        font-size: 14px;
+                    }
+                    if root.fullscreen && root.esc-hint: Chip {
+                        x: (parent.width - self.width) / 2;
+                        y: 16px;
+                        text: "Esc para sair da tela cheia";
                     }
                 }
-                if !root.has-frame: Text {
-                    text: root.stage-message;
-                    color: Theme.text-muted;
-                    font-size: 16px;
-                }
-            }
-            if !root.fullscreen: Rectangle {
-                height: 56px;
-                background: Theme.panel;
-                border-width: 0px;
-                HorizontalLayout {
-                    padding-left: 16px;
-                    padding-right: 16px;
-                    spacing: 12px;
-                    Text {
-                        text: root.watching == "" ? "" : "Assistindo " + root.watching;
-                        color: Theme.text;
-                        font-size: 14px;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        text: root.video-info;
-                        color: Theme.text-muted;
-                        font-size: 14px;
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
-                    }
-                    CheckBox {
-                        text: "Sem som";
-                        checked <=> root.muted;
-                        enabled: root.watching != "";
-                        toggled => {
-                            root.mute-changed(self.checked);
+                if !root.fullscreen && root.watching != "": Rectangle {
+                    height: 56px;
+                    background: Theme.wall-raised;
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        Text {
+                            text: root.watching;
+                            color: Theme.wall-text;
+                            font-size: 14px;
+                            font-weight: 700;
+                            vertical-alignment: center;
                         }
-                    }
-                    Button {
-                        text: "Tela cheia";
-                        enabled: root.watching != "";
-                        clicked => {
-                            root.toggle-fullscreen();
-                            keys.focus();
+                        Text {
+                            text: root.video-info;
+                            color: Theme.wall-text-2;
+                            font-size: 14px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
                         }
-                    }
-                    Button {
-                        text: "Parar de assistir";
-                        enabled: root.watching != "";
-                        clicked => {
-                            root.stop-watch();
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            kind: ButtonKind.ghost-on-wall;
+                            icon: root.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                            text: root.muted ? "Sem som" : "Som ligado";
+                            clicked => {
+                                root.set-muted(!root.muted);
+                            }
+                        }
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            kind: ButtonKind.ghost-on-wall;
+                            icon: @image-url("icons/maximize.svg");
+                            text: "Tela cheia";
+                            clicked => {
+                                root.toggle-fullscreen();
+                                keys.focus();
+                            }
+                        }
+                        Button {
+                            y: (parent.height - self.height) / 2;
+                            kind: ButtonKind.ghost-on-wall;
+                            icon: @image-url("icons/x.svg");
+                            text: "Parar de assistir";
+                            clicked => {
+                                root.stop-watch();
+                            }
                         }
                     }
                 }
