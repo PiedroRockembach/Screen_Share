@@ -44,7 +44,7 @@ fn choose_encoder() -> Result<Encoder> {
             continue;
         }
         for p in *props {
-            let element = format!("{factory} {p}");
+            let element = format!("{factory} name=enc {p}");
             let test = format!(
                 "d3d11testsrc num-buffers=30 ! video/x-raw(memory:D3D11Memory),width=1920,height=1080,framerate=60/1{} ! {element} ! h264parse ! fakesink",
                 conversion(*d3d11)
@@ -159,6 +159,10 @@ pub fn start(uri: &str, with_audio: bool, on_error: impl Fn(String) + Send + Syn
 
     let stop = Arc::new(AtomicBool::new(false));
     let current = Arc::new(Mutex::new(Some(pipeline)));
+    {
+        let current = current.clone();
+        super::adapt_bitrate(move || current.lock().unwrap().clone(), stop.clone());
+    }
     if with_audio && supported {
         let (stop, current, uri) = (stop.clone(), current.clone(), uri.to_owned());
         std::thread::spawn(move || {
