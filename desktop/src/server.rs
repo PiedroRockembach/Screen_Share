@@ -23,6 +23,23 @@ fn mediamtx_binary() -> PathBuf {
     }
 }
 
+/// Receive buffer for the video server's socket. A sender on the same PC
+/// delivers a whole keyframe at once (no network to spread it), and the system
+/// default (208 KB on Linux) overflowed at 20 Mbps. MediaMTX refuses to start
+/// when it gets less than it asked for, so on Linux this never exceeds what
+/// the kernel allows (net.core.rmem_max).
+fn udp_read_buffer() -> u64 {
+    const WANTED: u64 = 8 << 20;
+    if cfg!(target_os = "linux") {
+        std::fs::read_to_string("/proc/sys/net/core/rmem_max")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .map_or(0, |max| WANTED.min(max))
+    } else {
+        WANTED
+    }
+}
+
 impl Server {
     pub fn start(passphrase: &str) -> Result<Self> {
         let bin = mediamtx_binary();
@@ -32,11 +49,12 @@ impl Server {
         let dir = crate::paths::data_dir();
         let config = dir.join("desktop-mediamtx.yml");
         // 1128 bytes = 6 pacotes MPEG-TS; cabe em qualquer túnel com MTU 1280.
+        let read_buffer = udp_read_buffer();
         std::fs::write(
             &config,
             format!(
                 "logLevel: info\nrtsp: false\nrtmp: false\nhls: false\nwebrtc: false\nmoq: false\n\
-                 api: true\napiAddress: 127.0.0.1:{API_PORT}\nudpMaxPayloadSize: 1128\n\
+                 api: true\napiAddress: 127.0.0.1:{API_PORT}\nudpMaxPayloadSize: 1128\nudpReadBufferSize: {read_buffer}\n\
                  srt: true\nsrtAddress: 127.0.0.1:{SRT_PORT}\n\
                  authInternalUsers:\n  - user: any\n    pass:\n    ips: [\"127.0.0.1\", \"::1\"]\n    permissions:\n      - action: publish\n      - action: read\n      - action: api\n\
                  paths:\n  all_others:\n    srtPublishPassphrase: {passphrase}\n    srtReadPassphrase: {passphrase}\n"

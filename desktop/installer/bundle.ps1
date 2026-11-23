@@ -3,7 +3,7 @@
 param(
     [string]$Gst = "C:\gstreamer",
     [string]$Out = "desktop\installer\bundle",
-    [string]$MediaMtxVersion = "v1.21.2"
+    [string]$MediaMtxVersion = "v1.21.4"
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"

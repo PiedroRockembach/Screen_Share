@@ -25,7 +25,7 @@ import (
 const (
 	portaPainel    = 47800 // painel de controle, só 127.0.0.1
 	portaSala      = 47801 // página e WHIP/WHEP da sala, publicada pelo Funnel
-	versaoMediaMTX = "v1.21.2"
+	versaoMediaMTX = "v1.21.4"
 )
 
 var pastaDados string
