@@ -1,0 +1,362 @@
+import { Button, CheckBox, LineEdit } from "std-widgets.slint";
+
+global Theme {
+    out property <color> stage: #0b0e12;
+    out property <color> panel: #161b21;
+    out property <color> line: #262d36;
+    out property <color> row-hover: #1e252d;
+    out property <color> row-active: #233040;
+    out property <color> text: #e7ebf0;
+    out property <color> text-muted: #a3adb9;
+    out property <color> primary: #1f7a52;
+    out property <color> primary-hover: #238a5d;
+    out property <color> live: #e5534b;
+    out property <color> error: #f4a29b;
+}
+
+component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 40px;
+    border-radius: 6px;
+    background: !root.enabled ? Theme.line : touch.has-hover ? Theme.primary-hover : Theme.primary;
+    border-width: focus.has-focus ? 2px : 0px;
+    border-color: Theme.text;
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            focus.focus();
+            root.clicked();
+        }
+    }
+    Text {
+        text: root.text;
+        color: root.enabled ? #ffffff : Theme.text-muted;
+        font-size: 14px;
+        font-weight: 600;
+    }
+}
+
+component LiveRow inherits Rectangle {
+    in property <string> name;
+    in property <bool> active;
+    callback clicked;
+    height: 40px;
+    border-radius: 6px;
+    background: root.active ? Theme.row-active : touch.has-hover ? Theme.row-hover : transparent;
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        alignment: start;
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            background: Theme.live;
+        }
+        Text {
+            text: root.name;
+            color: Theme.text;
+            font-size: 14px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Sala de Tela";
+    default-font-family: "Noto Sans";
+    preferred-width: 1280px;
+    preferred-height: 760px;
+    min-width: 960px;
+    min-height: 600px;
+    background: Theme.stage;
+
+    in-out property <string> name;
+    in-out property <bool> with-audio: true;
+    in property <bool> transmitting;
+    in property <bool> busy;
+    in property <string> transmit-status;
+    in property <string> error-text;
+    in property <[string]> live;
+    in property <string> watching;
+    in property <image> frame;
+    in property <bool> has-frame;
+    in property <string> stage-message: "Escolha uma transmissão na lista.";
+    in-out property <bool> muted;
+    in property <bool> fullscreen;
+    in property <string> video-info;
+    // 0: no room, 1: hosting, 2: guest
+    in property <int> room-state;
+    in property <bool> room-busy;
+    in property <string> room-status;
+    in property <string> invite-code;
+    in-out property <string> invite-input;
+
+    callback transmit(string, bool);
+    callback stop-transmit();
+    callback watch(string);
+    callback stop-watch();
+    callback mute-changed(bool);
+    callback toggle-fullscreen();
+    callback create-room();
+    callback join-room(string);
+    callback leave-room();
+
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape && root.fullscreen) || (event.text == Key.F11 && root.watching != "") {
+                root.toggle-fullscreen();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    HorizontalLayout {
+        if !root.fullscreen: Rectangle {
+            width: 300px;
+            background: Theme.panel;
+            VerticalLayout {
+                padding: 24px;
+                spacing: 24px;
+                alignment: start;
+                Text {
+                    text: "Sala de Tela";
+                    color: Theme.text;
+                    font-size: 20px;
+                    font-weight: 600;
+                }
+                VerticalLayout {
+                    spacing: 12px;
+                    if root.room-status != "": Text {
+                        text: root.room-status;
+                        color: Theme.text-muted;
+                        font-size: 14px;
+                        wrap: word-wrap;
+                    }
+                    if root.room-state == 0: PrimaryButton {
+                        text: root.room-busy ? "Abrindo…" : "Criar sala";
+                        enabled: !root.room-busy;
+                        clicked => {
+                            root.create-room();
+                        }
+                    }
+                    if root.room-state == 0: HorizontalLayout {
+                        spacing: 8px;
+                        LineEdit {
+                            text <=> root.invite-input;
+                            placeholder-text: "ou cole um convite";
+                            enabled: !root.room-busy;
+                        }
+                        Button {
+                            text: "Entrar";
+                            enabled: !root.room-busy && root.invite-input != "";
+                            clicked => {
+                                root.join-room(root.invite-input);
+                            }
+                        }
+                    }
+                    if root.room-state == 1: VerticalLayout {
+                        spacing: 8px;
+                        invite-field := LineEdit {
+                            text: root.invite-code;
+                            read-only: true;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Button {
+                                text: "Copiar convite";
+                                clicked => {
+                                    invite-field.select-all();
+                                    invite-field.copy();
+                                }
+                            }
+                            Button {
+                                text: "Fechar sala";
+                                clicked => {
+                                    root.leave-room();
+                                }
+                            }
+                        }
+                    }
+                    if root.room-state == 2: Button {
+                        text: "Sair da sala";
+                        clicked => {
+                            root.leave-room();
+                        }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Seu nome";
+                            color: Theme.text-muted;
+                            font-size: 14px;
+                        }
+                        LineEdit {
+                            text <=> root.name;
+                            placeholder-text: "como os amigos vão te ver";
+                            enabled: !root.transmitting && !root.busy;
+                        }
+                    }
+                    CheckBox {
+                        text: "Transmitir o som do PC (sem o Discord)";
+                        checked <=> root.with-audio;
+                        enabled: !root.transmitting && !root.busy;
+                    }
+                    if root.room-state != 0: PrimaryButton {
+                        text: root.transmitting ? "Parar de transmitir" : root.busy ? "Preparando…" : "Transmitir minha tela";
+                        enabled: !root.busy;
+                        clicked => {
+                            if (root.transmitting) {
+                                root.stop-transmit();
+                            } else {
+                                root.transmit(root.name, root.with-audio);
+                            }
+                        }
+                    }
+                    if root.transmit-status != "": Text {
+                        text: root.transmit-status;
+                        color: Theme.text-muted;
+                        font-size: 14px;
+                        wrap: word-wrap;
+                    }
+                    if root.error-text != "": Text {
+                        text: root.error-text;
+                        color: Theme.error;
+                        font-size: 14px;
+                        wrap: word-wrap;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Ao vivo";
+                        color: Theme.text-muted;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }
+                    if root.live.length == 0: Text {
+                        text: "Ninguém transmitindo. Quando alguém começar, aparece aqui.";
+                        color: Theme.text-muted;
+                        font-size: 14px;
+                        wrap: word-wrap;
+                    }
+                    for stream in root.live: LiveRow {
+                        name: stream;
+                        active: stream == root.watching;
+                        clicked => {
+                            root.watch(stream);
+                        }
+                    }
+                }
+            }
+        }
+        VerticalLayout {
+            Rectangle {
+                background: Theme.stage;
+                if root.has-frame: Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.frame;
+                    image-fit: contain;
+                }
+                TouchArea {
+                    double-clicked => {
+                        if root.watching != "" {
+                            root.toggle-fullscreen();
+                            keys.focus();
+                        }
+                    }
+                }
+                if root.fullscreen && root.video-info != "": Rectangle {
+                    x: parent.width - self.width - 16px;
+                    y: 16px;
+                    width: info.preferred-width + 24px;
+                    height: 32px;
+                    border-radius: 6px;
+                    background: #0b0e12c0;
+                    info := Text {
+                        text: root.video-info;
+                        color: Theme.text-muted;
+                        font-size: 14px;
+                    }
+                }
+                if !root.has-frame: Text {
+                    text: root.stage-message;
+                    color: Theme.text-muted;
+                    font-size: 16px;
+                }
+            }
+            if !root.fullscreen: Rectangle {
+                height: 56px;
+                background: Theme.panel;
+                border-width: 0px;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 12px;
+                    Text {
+                        text: root.watching == "" ? "" : "Assistindo " + root.watching;
+                        color: Theme.text;
+                        font-size: 14px;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: root.video-info;
+                        color: Theme.text-muted;
+                        font-size: 14px;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    CheckBox {
+                        text: "Sem som";
+                        checked <=> root.muted;
+                        enabled: root.watching != "";
+                        toggled => {
+                            root.mute-changed(self.checked);
+                        }
+                    }
+                    Button {
+                        text: "Tela cheia";
+                        enabled: root.watching != "";
+                        clicked => {
+                            root.toggle-fullscreen();
+                            keys.focus();
+                        }
+                    }
+                    Button {
+                        text: "Parar de assistir";
+                        enabled: root.watching != "";
+                        clicked => {
+                            root.stop-watch();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

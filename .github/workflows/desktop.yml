@@ -1,0 +1,93 @@
+# Compila o app dedicado (Rust) para Windows e publica o instalador em:
+#   https://github.com/<usuario>/<repo>/releases/download/app-windows/SalaDeTela-Setup.exe
+name: App para Windows
+
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GST_VERSION: "1.28.8"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Cache do GStreamer
+        id: gst-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\gstreamer
+          key: gstreamer-msvc-${{ env.GST_VERSION }}
+
+      - name: Instalar o GStreamer (com checksum)
+        if: steps.gst-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ProgressPreference = "SilentlyContinue"
+          $file = "gstreamer-1.0-msvc-x86_64-$env:GST_VERSION.exe"
+          $url = "https://gstreamer.freedesktop.org/data/pkg/windows/$env:GST_VERSION/msvc/$file"
+          Invoke-WebRequest $url -OutFile $file
+          Invoke-WebRequest "$url.sha256sum" -OutFile sum.txt
+          $expected = ((Get-Content sum.txt) -split "\s+")[0].ToLower()
+          $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "checksum do GStreamer não confere" }
+          $p = Start-Process $file -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/TYPE=devel","/DIR=C:\gstreamer" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "instalador do GStreamer saiu com $($p.ExitCode)" }
+          if (-not (Test-Path C:\gstreamer\lib\pkgconfig\gstreamer-1.0.pc)) { throw "arquivos de desenvolvimento do GStreamer ausentes" }
+
+      - name: Ambiente de build
+        shell: pwsh
+        run: |
+          "C:\gstreamer\bin" >> $env:GITHUB_PATH
+          "PKG_CONFIG_PATH=C:\gstreamer\lib\pkgconfig" >> $env:GITHUB_ENV
+          if (-not (Get-Command pkg-config -ErrorAction SilentlyContinue) -and -not (Test-Path C:\gstreamer\bin\pkg-config.exe)) {
+            choco install pkgconfiglite -y --no-progress
+          }
+
+      - name: Compilar
+        working-directory: desktop
+        run: cargo build --release
+
+      - name: Montar o pacote
+        shell: pwsh
+        run: ./desktop/installer/bundle.ps1
+
+      - name: Gerar o instalador
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc desktop\installer\sala-de-tela.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup falhou" }
+          $mb = (Get-Item dist\SalaDeTela-Setup.exe).Length / 1MB
+          Write-Host ("Instalador: {0:N0} MB" -f $mb)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SalaDeTela-Setup
+          path: dist/SalaDeTela-Setup.exe
+
+      - name: Publicar na release "app-windows"
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view app-windows *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create app-windows --title "Sala de Tela para Windows (app dedicado)" --notes "Baixe o SalaDeTela-Setup.exe, instale e abra. Versão em teste."
+          }
+          gh release upload app-windows dist/SalaDeTela-Setup.exe --clobber
