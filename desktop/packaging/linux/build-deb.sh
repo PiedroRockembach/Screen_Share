@@ -19,6 +19,8 @@ install -Dm644 "$here/../sala-de-tela.desktop" "$pkg/usr/share/applications/sala
 install -Dm644 "$here/../sala-de-tela.svg" "$pkg/usr/share/icons/hicolor/scalable/apps/sala-de-tela.svg"
 
 # The system libraries the app links against, with the versions it needs.
+# GStreamer itself is pinned to 1.22+ below: older ones (Ubuntu 22.04) lack
+# videoconvertscale, which every pipeline uses.
 work=$(mktemp -d)
 mkdir -p "$work/debian"
 printf 'Source: sala-de-tela\n\nPackage: sala-de-tela\nArchitecture: any\n' > "$work/debian/control"
@@ -33,7 +35,7 @@ Maintainer: PiedroRockembach <PiedroRockembach@users.noreply.github.com>
 Homepage: https://github.com/PiedroRockembach/Screen_Share
 Section: video
 Priority: optional
-Depends: $shlibs, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-pipewire, pipewire-bin, pulseaudio-utils, xdg-desktop-portal
+Depends: $shlibs, libgstreamer1.0-0 (>= 1.22), gstreamer1.0-plugins-base (>= 1.22), gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-pipewire, pipewire-bin, pulseaudio-utils, xdg-desktop-portal
 Recommends: gstreamer1.0-plugins-ugly
 Description: Transmita a tela para os amigos, sem a voz do Discord
  Substituto gratuito do "Go Live" do Discord: transmissão de tela em
