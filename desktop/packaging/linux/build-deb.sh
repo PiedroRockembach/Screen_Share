@@ -21,7 +21,7 @@ install -Dm644 "$here/../sala-de-tela.svg" "$pkg/usr/share/icons/hicolor/scalabl
 # The system libraries the app links against, with the versions it needs.
 work=$(mktemp -d)
 mkdir -p "$work/debian"
-printf 'Source: sala-de-tela\n\nPackage: sala-de-tela\n' > "$work/debian/control"
+printf 'Source: sala-de-tela\n\nPackage: sala-de-tela\nArchitecture: any\n' > "$work/debian/control"
 shlibs=$(cd "$work" && dpkg-shlibdeps -O "$pkg/usr/lib/sala-de-tela/sala-de-tela" | sed 's/^shlibs:Depends=//')
 
 mkdir -p "$pkg/DEBIAN"
