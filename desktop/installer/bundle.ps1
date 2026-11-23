@@ -19,7 +19,7 @@ $plugins = @(
     "coreelements", "app", "videoconvertscale", "videorate", "videotestsrc", "audioconvert",
     "audioresample", "audiotestsrc", "volume", "autodetect", "opus", "opusparse", "srt",
     "mpegtsmux", "mpegtsdemux", "videoparsersbad", "d3d11", "nvcodec", "amfcodec", "qsv",
-    "mediafoundation", "wasapi2", "directsound", "typefindfunctions"
+    "mediafoundation", "wasapi2", "directsound", "typefindfunctions", "libav"
 )
 foreach ($p in $plugins) {
     $dll = "$Gst\lib\gstreamer-1.0\gst$p.dll"
@@ -42,12 +42,15 @@ if ($expected -ne $actual) { throw "checksum do MediaMTX não confere" }
 Expand-Archive $zip -DestinationPath mediamtx-tmp -Force
 Copy-Item "mediamtx-tmp\mediamtx.exe" $Out
 
-# Confere que cada elemento que o app usa carrega a partir do pacote.
+# Confere que cada elemento que o app usa carrega a partir do pacote. Fora da
+# lista: codificadores e decodificadores de hardware (d3d11h264dec, nvcodec,
+# amf, qsv), que o GStreamer só registra se a placa de vídeo os suporta; o
+# runner do CI não tem GPU. O avdec_h264 garante a decodificação sem eles.
 $env:GST_PLUGIN_SYSTEM_PATH_1_0 = (Resolve-Path "$Out\gstreamer-1.0").Path
 $env:GST_PLUGIN_PATH_1_0 = ""
 $env:GST_REGISTRY_1_0 = "$env:TEMP\bundle-registry.bin"
 $elements = @(
-    "d3d11screencapturesrc", "d3d11testsrc", "d3d11convert", "d3d11download", "d3d11h264dec", "wasapi2src",
+    "d3d11screencapturesrc", "d3d11testsrc", "d3d11convert", "d3d11download", "avdec_h264", "wasapi2src",
     "wasapi2sink", "srtsrc", "srtsink", "mpegtsmux", "tsdemux", "h264parse", "opusenc", "opusdec", "opusparse",
     "appsink", "videoconvertscale", "audioconvert", "audioresample", "volume", "autoaudiosink", "mfh264enc"
 )
