@@ -53,6 +53,25 @@ fn virtual_interface(name: &str) -> bool {
         .any(|p| name.starts_with(p))
 }
 
+/// Physical interfaces with an address friends can reach (home-network IPv4 or
+/// global IPv6). The tunnel keeps one socket bound to each.
+#[cfg(target_os = "linux")]
+pub fn physical_interfaces() -> Vec<String> {
+    let mut names: Vec<String> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|iface| !virtual_interface(&iface.name))
+        .filter(|iface| match iface.ip() {
+            IpAddr::V4(ip) => ip.is_private(),
+            IpAddr::V6(ip) => (ip.segments()[0] & 0xe000) == 0x2000,
+        })
+        .map(|iface| iface.name)
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 /// Temporary (privacy) IPv6 addresses rotate every few hours; invites use the
 /// stable ones.
 #[cfg(target_os = "linux")]
