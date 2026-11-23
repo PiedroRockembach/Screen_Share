@@ -16,6 +16,9 @@ Restrições fixas: 100% gratuito; sem Tailscale nem serviços de terceiros na r
   - `player.rs`: srtsrc → tsdemux (latency=0) → decodificador → appsink desenhado na janela.
 - `app/` é o app antigo em Go (Funnel + TURN), mantido até o novo substituir.
 
+### Pacotes Linux
+- `.github/workflows/linux.yml` gera o `.deb` (compilado em Debian 12, release `app-debian`) e o `.rpm` (Fedora, release `app-fedora`); arquivos em `desktop/packaging/`. MediaMTX fixado em v1.21.4 (a v1.21.2 descartava quadros H.264 grandes em silêncio).
+
 ### No Windows
 - O instalador sai do workflow `.github/workflows/desktop.yml` (GStreamer 1.28.8 MSVC em `C:\gstreamer`, script `desktop/installer/bundle.ps1`, Inno Setup).
 - Arquivos do app instalado: `%LOCALAPPDATA%\SalaDeTela` (`desktop.json`, `desktop-mediamtx.log`, `gstreamer-registry.bin`).

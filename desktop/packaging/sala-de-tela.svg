@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Sala de Tela: a TV acesa na sala escura, com a luz dela na parede. -->
+  <defs>
+    <radialGradient id="ambient" cx="50%" cy="45%" r="55%">
+      <stop offset="0" stop-color="#f6ae31" stop-opacity="0.6"/>
+      <stop offset="0.55" stop-color="#f6ae31" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#f6ae31" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#14292e"/>
+  <rect width="256" height="256" rx="56" fill="url(#ambient)"/>
+  <rect x="44" y="62" width="168" height="104" rx="12" fill="#15110e" stroke="#ebf3f4" stroke-width="10"/>
+  <circle cx="186" cy="88" r="9" fill="#e93b35"/>
+  <rect x="100" y="186" width="56" height="10" rx="5" fill="#ebf3f4"/>
+</svg>

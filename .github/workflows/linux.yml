@@ -1,0 +1,132 @@
+# Compila o app dedicado (Rust) para Linux e publica um pacote por família:
+#   .deb (Debian 12+, Ubuntu 24.04+, Mint 22+): release "app-debian"
+#   .rpm (Fedora):                              release "app-fedora"
+# Cada pacote é compilado dentro do próprio sistema, contra o GStreamer dele.
+name: App para Linux
+
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/linux.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  MEDIAMTX_VERSION: "v1.21.4"
+
+jobs:
+  debian:
+    runs-on: ubuntu-latest
+    # A base mais antiga suportada: o .deb instala nas mais novas também.
+    container: debian:bookworm
+    steps:
+      - name: Dependências de compilação
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config dpkg-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libfontconfig-dev libfreetype-dev libxkbcommon-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Rust
+        run: |
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+          key: debian-bookworm
+
+      - name: Compilar
+        working-directory: desktop
+        run: cargo build --release --locked
+
+      - name: Montar o .deb
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' desktop/Cargo.toml | head -1)-${{ github.run_number }}"
+          sh desktop/packaging/linux/fetch-mediamtx.sh "$MEDIAMTX_VERSION" mediamtx
+          bash desktop/packaging/linux/build-deb.sh "$version" "$PWD/mediamtx" dist
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sala-de-tela-deb
+          path: dist/*.deb
+
+  fedora:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Dependências de compilação
+        run: |
+          dnf install -y gcc gcc-c++ make git curl pkgconf-pkg-config rpm-build \
+            gstreamer1-devel gstreamer1-plugins-base-devel fontconfig-devel freetype-devel libxkbcommon-devel
+
+      - uses: actions/checkout@v4
+
+      - name: Rust
+        run: |
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+          key: fedora
+
+      - name: Compilar
+        working-directory: desktop
+        run: cargo build --release --locked
+
+      - name: Montar o .rpm
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' desktop/Cargo.toml | head -1)"
+          src="$PWD/rpm-sources"
+          mkdir -p "$src"
+          sh desktop/packaging/linux/fetch-mediamtx.sh "$MEDIAMTX_VERSION" "$src/mediamtx"
+          cp desktop/target/release/sala-de-tela desktop/packaging/sala-de-tela.desktop desktop/packaging/sala-de-tela.svg "$src/"
+          rpmbuild -bb desktop/packaging/linux/sala-de-tela.spec \
+            --define "pkg_version $version" --define "pkg_release ${{ github.run_number }}" \
+            --define "_sourcedir $src" --define "_rpmdir $PWD/dist"
+          find dist -name '*.rpm' -exec mv {} dist/ \;
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sala-de-tela-rpm
+          path: dist/*.rpm
+
+  publicar:
+    needs: [debian, fedora]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: pacotes
+          merge-multiple: true
+
+      - name: Publicar nas releases "app-debian" e "app-fedora"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          ls -la pacotes
+          publish() { # tag, título, notas, arquivo
+            if ! gh release view "$1" --repo "$REPO" > /dev/null 2>&1; then
+              gh release create "$1" --repo "$REPO" --title "$2" --notes "$3"
+            fi
+            # Só o pacote mais novo fica na release.
+            for old in $(gh release view "$1" --repo "$REPO" --json assets --jq '.assets[].name'); do
+              gh release delete-asset "$1" "$old" --repo "$REPO" --yes
+            done
+            gh release upload "$1" "$4" --repo "$REPO" --clobber
+          }
+          publish app-debian "Sala de Tela para Debian, Ubuntu e Mint" \
+            "Baixe o .deb e instale com: sudo apt install ./sala-de-tela_*_amd64.deb (Debian 12+, Ubuntu 24.04+, Mint 22+). Depois abra Sala de Tela pelo menu." \
+            pacotes/*.deb
+          publish app-fedora "Sala de Tela para Fedora" \
+            "Baixe o .rpm e instale com: sudo dnf install ./sala-de-tela-*.x86_64.rpm. Depois abra Sala de Tela pelo menu." \
+            pacotes/*.rpm

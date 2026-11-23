@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sala de Tela
+Comment=Transmita e assista à tela dos amigos, com o som do PC e sem a voz do Discord
+Exec=sala-de-tela
+Icon=sala-de-tela
+Terminal=false
+Categories=Network;AudioVideo;Video;
+Keywords=tela;transmitir;stream;discord;compartilhar;
