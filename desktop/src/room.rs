@@ -110,10 +110,12 @@ pub fn open_firewall() -> Result<()> {
     if Command::new("sh").args(["-c", "command -v ufw"]).output().map(|o| !o.status.success()).unwrap_or(true) {
         return Ok(());
     }
-    let script = format!(
-        "if ufw status | grep -q 'Status: active'; then ufw allow {TUNNEL_PORT}/udp comment 'Sala de Tela'; fi"
-    );
-    let status = Command::new("pkexec").args(["sh", "-c", &script]).status()?;
+    // Added even while ufw is off, so the port is already open if it gets turned
+    // on later. (Checking `ufw status` first silently skipped the rule.)
+    let rule = TUNNEL_PORT.to_string() + "/udp";
+    let status = Command::new("pkexec")
+        .args(["ufw", "allow", &rule, "comment", "Sala de Tela"])
+        .status()?;
     if !status.success() {
         bail!("a liberação do firewall foi cancelada");
     }

@@ -278,10 +278,13 @@ fn main() -> anyhow::Result<()> {
             ui.set_busy(true);
             ui.set_transmit_status("Escolha a tela na janela do sistema.".into());
             {
-                let mut s = settings.borrow_mut();
+                // Saved from a fresh load: the copy taken at startup would wipe
+                // the room secret and firewall flag written since then.
+                let mut s = Settings::load();
                 s.name = name.clone();
                 s.with_audio = Some(with_audio);
                 s.save();
+                *settings.borrow_mut() = s;
             }
             let token = Settings::load().restore_token;
             let ui_weak = ui_weak.clone();
